@@ -1,7 +1,7 @@
 """Pydantic schema for email records."""
 
 from datetime import datetime
-from pydantic import BaseModel, Field, EmailStr, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class EmailRecord(BaseModel):
@@ -9,7 +9,7 @@ class EmailRecord(BaseModel):
 
     subject: str = Field(default="", description="Email subject line")
     sender: str = Field(default="", description="Sender display name")
-    sender_email: EmailStr = Field(description="Sender email address")
+    sender_email: str = Field(description="Sender email address")
     received_time: datetime = Field(description="Time email was received")
     body: str = Field(default="", description="Email body text")
     attachments: list[str] = Field(

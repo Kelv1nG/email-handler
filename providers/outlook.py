@@ -8,15 +8,19 @@ import win32com.client
 from schemas.email import EmailRecord
 from utils.dates import format_outlook_date
 
+# Outlook object model constants from pywin32
+# Reference: https://docs.microsoft.com/en-us/office/client-developer/outlook/pia/
+OL_MAIL_CLASS = 43  # olMail - represents a mail message item
+
 
 class OutlookProvider:
-    """Outlook email provider for filtering and extracting emails."""
+    """Outlook email provider for filtering and extracting emails.
 
-    # Outlook constants
-    OUTLOOK_MAIL_CLASS = 43  # olMail
+    Uses pywin32 (win32com) to interact with Microsoft Outlook COM objects.
+    """
 
     def __init__(self):
-        """Initialize Outlook provider."""
+        """Initialize Outlook provider with pywin32 COM dispatch."""
         self.outlook = win32com.client.Dispatch("Outlook.Application")
         self.namespace = self.outlook.GetNamespace("MAPI")
 
@@ -150,7 +154,7 @@ class OutlookProvider:
             True if message is a mail item, False otherwise.
         """
         try:
-            return message.Class == self.OUTLOOK_MAIL_CLASS
+            return message.Class == OL_MAIL_CLASS
         except Exception:
             return False
 
