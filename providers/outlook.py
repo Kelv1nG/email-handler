@@ -92,10 +92,11 @@ class OutlookProvider:
         return results
 
     def _get_folder(self, folder_name: str) -> Any:
-        """Get folder by name.
+        """Get folder by name (supports subfolders).
 
         Args:
-            folder_name: Name of the folder to retrieve.
+            folder_name: Name of the folder to retrieve. Use format "Inbox" or "Inbox/subfolder"
+                        for nested folders. For subfolders only, just pass the subfolder name.
 
         Returns:
             Outlook folder object.
@@ -104,13 +105,33 @@ class OutlookProvider:
             ValueError: If folder does not exist.
         """
         inbox = self.namespace.GetDefaultFolder(6)  # 6 = olFolderInbox
+
+        # Handle nested folder paths (e.g., "Inbox/ort" or "ort")
+        if "/" in folder_name:
+            parts = folder_name.split("/")
+            folder = inbox
+            for part in parts:
+                if part.lower() == "inbox":
+                    continue
+                try:
+                    folder = folder.Folders[part]
+                except Exception as e:
+                    raise ValueError(f"Outlook folder '{folder_name}' not found.") from e
+            return folder
+
+        # Handle single folder names
         if folder_name.lower() == "inbox":
             return inbox
 
+        # Try to get subfolder from inbox
         try:
-            return inbox.Parent.Folders[folder_name]
+            return inbox.Folders[folder_name]
         except Exception as e:
-            raise ValueError(f"Outlook folder '{folder_name}' not found.") from e
+            # Fallback: try to get from parent folders
+            try:
+                return inbox.Parent.Folders[folder_name]
+            except Exception:
+                raise ValueError(f"Outlook folder '{folder_name}' not found.") from e
 
     def _apply_date_filter(
         self,
