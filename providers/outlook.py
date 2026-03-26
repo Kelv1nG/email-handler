@@ -53,11 +53,11 @@ class OutlookProvider:
 
         for folder_name, indexed_queries in folder_groups.items():
             merged_date_from, merged_date_to = self._merge_date_ranges(indexed_queries)
-            merged_keywords = self._merge_keywords(indexed_queries)
+            merged_keywords, all_exact_match = self._merge_keywords(indexed_queries)
             
             # Single Outlook search with merged keywords + date range (server-side filtering)
             folder_emails = self._search_folder(
-                folder_name, merged_keywords, merged_date_from, merged_date_to
+                folder_name, merged_keywords, all_exact_match, merged_date_from, merged_date_to
             )
 
             # Post-filter each email against each query's specific keyword settings
@@ -259,14 +259,23 @@ class OutlookProvider:
         ]
         return (min(date_froms) if date_froms else None, max(date_tos) if date_tos else None)
 
-    def _merge_keywords(self, indexed_queries: list[tuple[int, SearchQuery]]) -> list[str]:
-        """Collect and deduplicate keywords from all queries in a folder group."""
+    def _merge_keywords(
+        self, indexed_queries: list[tuple[int, SearchQuery]]
+    ) -> tuple[list[str], bool]:
+        """Collect keywords and determine if all are exact match.
+        
+        Returns:
+            Tuple of (keywords list, whether all queries use exact_match).
+        """
         keywords = set()
+        all_exact_match = True
         for _, q in indexed_queries:
             for f in q.filters:
                 if isinstance(f, KeywordFilter):
                     keywords.update(f.keywords)
-        return list(keywords)
+                    if not f.exact_match:
+                        all_exact_match = False
+        return list(keywords), all_exact_match
 
     def _apply_query_filters(
         self, emails: list[EmailRecord], query: SearchQuery
@@ -297,6 +306,7 @@ class OutlookProvider:
         self,
         folder_name: str,
         keywords: list[str] | None,
+        exact_match: bool,
         date_from: datetime | None,
         date_to: datetime | None,
     ) -> list[EmailRecord]:
@@ -307,6 +317,7 @@ class OutlookProvider:
         Args:
             folder_name: Outlook folder to search.
             keywords: Keywords to search for in subject (OR logic). None for no keyword filter.
+            exact_match: If True, match full subject exactly. If False, substring match.
             date_from: Lower bound for ReceivedTime (inclusive). None for no bound.
             date_to: Upper bound for ReceivedTime (inclusive). None for no bound.
 
@@ -320,12 +331,12 @@ class OutlookProvider:
         # Build Outlook restriction string for keywords + date range (server-side)
         restrictions = []
         if keywords:
-            restrictions.append(self._build_keyword_restriction(keywords))
+            restrictions.append(self._build_keyword_restriction(keywords, exact_match))
         if date_from is not None or date_to is not None:
             restrictions.append(self._build_date_restriction(date_from, date_to))
         
         if restrictions:
-            combined = " AND ".join(f"({r})" for r in restrictions)
+            combined = " AND ".join(restrictions)
             messages = messages.Restrict(combined)
 
         results: list[EmailRecord] = []
@@ -351,22 +362,25 @@ class OutlookProvider:
 
         return results
 
-    def _build_keyword_restriction(self, keywords: list[str]) -> str:
+    def _build_keyword_restriction(self, keywords: list[str], exact_match: bool) -> str:
         """Build Outlook restriction string for keywords (OR logic on subject).
         
         Args:
             keywords: List of keywords to search for.
+            exact_match: If True, match full subject exactly. If False, substring match.
             
         Returns:
             Outlook restriction string for keywords matching any keyword in subject.
         """
         if not keywords:
             return ""
-        # Use Outlook's native restriction syntax: [Subject] like "%keyword%"
-        or_conditions = " OR ".join(
-            f'[Subject] like "%{kw}%"' for kw in keywords
-        )
-        return f"({or_conditions})"
+        if exact_match:
+            # Exact match: [Subject] = "keyword"
+            conditions = [f'[Subject] = "{kw}"' for kw in keywords]
+        else:
+            # Substring match: [Subject] like "%keyword%"
+            conditions = [f'[Subject] like "%{kw}%"' for kw in keywords]
+        return " OR ".join(conditions)
 
     def _build_date_restriction(
         self, date_from: datetime | None, date_to: datetime | None

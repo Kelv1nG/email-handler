@@ -14,7 +14,7 @@ def main():
     results = provider.filter_emails([
         SearchQuery(filters=[
             FolderFilter(folder_name="Inbox"),
-            KeywordFilter(keywords=["rivalry"]),
+            KeywordFilter(keywords=["Kelvin, follow Sundar Pichai - CEO at Google"], exact_match=False),
         ])
     ])
     for query_result in results:
