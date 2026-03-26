@@ -1,5 +1,6 @@
 """Outlook email provider implementation."""
 
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -8,6 +9,8 @@ import tempfile
 import win32com.client
 
 from schemas.email import EmailRecord
+from schemas.filter import DateFilter, FolderFilter, KeywordFilter, SearchQuery
+from schemas.result import QueryResult
 from utils.dates import format_outlook_date
 
 # Outlook object model constants from pywin32
@@ -31,77 +34,33 @@ class OutlookProvider:
     # Protocol Methods (EmailProvider Interface)
     # ============================================================================
 
-    def filter_emails(
-        self,
-        keywords: list[str] | None = None,
-        exact_match: bool = False,
-        date_from: datetime | None = None,
-        date_to: datetime | None = None,
-        folder_name: str = "Inbox",
-    ) -> list[EmailRecord]:
-        """Filter Outlook emails by keywords and/or date range.
+    def filter_emails(self, queries: list[SearchQuery]) -> list[QueryResult]:
+        """Filter Outlook emails using composeable search queries.
+
+        Queries targeting the same folder are batched into a single Outlook
+        search using the merged date range, then post-filtered per query.
 
         Args:
-            keywords: List of keywords to search for in subject and body.
-                     If None or empty, no keyword filter is applied.
-            exact_match: When True the keyword must match the full subject/body.
-                        When False a substring (case-insensitive) match is used.
-            date_from: Only include emails received on or after this datetime.
-                      Defaults to None (no lower bound).
-            date_to: Only include emails received on or before this datetime.
-                    Defaults to None (no upper bound).
-            folder_name: Outlook folder to search in. Defaults to "Inbox".
+            queries: List of SearchQuery objects with composeable filters.
 
         Returns:
-            A list of EmailRecord objects matching the filters.
+            A list of QueryResult objects, one per input query.
 
         Raises:
-            ValueError: If the folder_name does not exist.
+            ValueError: If a folder referenced in a FolderFilter does not exist.
         """
-        # Locate the requested folder
-        folder = self._get_folder(folder_name)
+        folder_groups = self._group_queries_by_folder(queries)
+        query_records: dict[int, list[EmailRecord]] = {i: [] for i in range(len(queries))}
 
-        # Get messages sorted by received time (newest first)
-        messages = folder.Items
-        messages.Sort("[ReceivedTime]", True)
+        for folder_name, indexed_queries in folder_groups.items():
+            merged_date_from, merged_date_to = self._merge_date_ranges(indexed_queries)
+            folder_emails = self._search_folder(folder_name, merged_date_from, merged_date_to)
 
-        # Apply date range filters
-        if date_from is not None or date_to is not None:
-            messages = self._apply_date_filter(messages, date_from, date_to)
+            for idx, query in indexed_queries:
+                matched = self._apply_query_filters(folder_emails, query)
+                query_records[idx].extend(matched)
 
-        # Process messages
-        results: list[EmailRecord] = []
-        for message in messages:
-            # Skip non-mail items
-            if not self._is_mail_item(message):
-                continue
-
-            subject: str = message.Subject or ""
-
-            # Apply keyword filtering
-            if keywords and not self._matches_keywords(subject, keywords, exact_match):
-                continue
-
-            # Extract attachments
-            attachments = self._extract_attachments(message)
-
-            # Create and validate email record
-            email_record = EmailRecord(
-                subject=subject,
-                sender=message.SenderName or "",
-                sender_email=message.SenderEmailAddress or "",
-                received_time=message.ReceivedTime,
-                body=message.Body or "",
-                attachments=attachments,
-            )
-
-            # Cache the Outlook message object for later attachment retrieval
-            cache_key = self._get_cache_key(email_record)
-            self._message_cache[cache_key] = message
-
-            results.append(email_record)
-
-        return results
+        return [QueryResult(query=queries[i], records=query_records[i]) for i in range(len(queries))]
 
     def search_attachments(
         self,
@@ -265,6 +224,106 @@ class OutlookProvider:
     # ============================================================================
     # Private Helper Methods
     # ============================================================================
+
+    def _group_queries_by_folder(
+        self, queries: list[SearchQuery]
+    ) -> dict[str, list[tuple[int, SearchQuery]]]:
+        """Group queries by their folder name, preserving original index."""
+        groups: dict[str, list[tuple[int, SearchQuery]]] = defaultdict(list)
+        for i, query in enumerate(queries):
+            folder_filter = next((f for f in query.filters if isinstance(f, FolderFilter)), None)
+            folder_name = folder_filter.folder_name if folder_filter else "Inbox"
+            groups[folder_name].append((i, query))
+        return groups
+
+    def _merge_date_ranges(
+        self, indexed_queries: list[tuple[int, SearchQuery]]
+    ) -> tuple[datetime | None, datetime | None]:
+        """Return the widest date range covering all queries in a folder group."""
+        date_froms = [
+            f.date_from
+            for _, q in indexed_queries
+            for f in q.filters
+            if isinstance(f, DateFilter) and f.date_from is not None
+        ]
+        date_tos = [
+            f.date_to
+            for _, q in indexed_queries
+            for f in q.filters
+            if isinstance(f, DateFilter) and f.date_to is not None
+        ]
+        return (min(date_froms) if date_froms else None, max(date_tos) if date_tos else None)
+
+    def _apply_query_filters(
+        self, emails: list[EmailRecord], query: SearchQuery
+    ) -> list[EmailRecord]:
+        """Post-filter a list of emails against a single query's keyword and date filters."""
+        keyword_filter = next((f for f in query.filters if isinstance(f, KeywordFilter)), None)
+        date_filter = next((f for f in query.filters if isinstance(f, DateFilter)), None)
+
+        results = []
+        for email in emails:
+            if keyword_filter and not self._matches_keywords(
+                email.subject, keyword_filter.keywords, keyword_filter.exact_match
+            ):
+                continue
+
+            if date_filter:
+                # Strip tzinfo for comparison (Outlook returns tz-aware datetimes)
+                recv = email.received_time.replace(tzinfo=None)
+                if date_filter.date_from and recv < date_filter.date_from.replace(tzinfo=None):
+                    continue
+                if date_filter.date_to and recv > date_filter.date_to.replace(tzinfo=None):
+                    continue
+
+            results.append(email)
+        return results
+
+    def _search_folder(
+        self,
+        folder_name: str,
+        date_from: datetime | None,
+        date_to: datetime | None,
+    ) -> list[EmailRecord]:
+        """Fetch all mail items from a folder within an optional date range.
+
+        Args:
+            folder_name: Outlook folder to search.
+            date_from: Lower bound for ReceivedTime (inclusive). None for no bound.
+            date_to: Upper bound for ReceivedTime (inclusive). None for no bound.
+
+        Returns:
+            List of EmailRecord objects (no keyword filtering applied).
+        """
+        folder = self._get_folder(folder_name)
+        messages = folder.Items
+        messages.Sort("[ReceivedTime]", True)
+
+        if date_from is not None or date_to is not None:
+            messages = self._apply_date_filter(messages, date_from, date_to)
+
+        results: list[EmailRecord] = []
+        for message in messages:
+            if not self._is_mail_item(message):
+                continue
+
+            subject: str = message.Subject or ""
+            attachments = self._extract_attachments(message)
+
+            email_record = EmailRecord(
+                subject=subject,
+                sender=message.SenderName or "",
+                sender_email=message.SenderEmailAddress or "",
+                received_time=message.ReceivedTime,
+                body=message.Body or "",
+                attachments=attachments,
+            )
+
+            cache_key = self._get_cache_key(email_record)
+            self._message_cache[cache_key] = message
+            results.append(email_record)
+
+        return results
 
     def _get_folder(self, folder_name: str) -> Any:
         """Get folder by name (supports subfolders).

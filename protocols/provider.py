@@ -1,9 +1,10 @@
 """Abstract protocol for email providers."""
 
-from datetime import datetime
 from typing import Protocol
 
 from schemas.email import EmailRecord
+from schemas.filter import SearchQuery
+from schemas.result import QueryResult
 
 
 class EmailProvider(Protocol):
@@ -11,30 +12,23 @@ class EmailProvider(Protocol):
 
     def filter_emails(
         self,
-        keywords: list[str] | None = None,
-        exact_match: bool = False,
-        date_from: datetime | None = None,
-        date_to: datetime | None = None,
-        folder_name: str = "Inbox",
-    ) -> list[EmailRecord]:
-        """Filter emails by keywords and date range.
+        queries: list[SearchQuery],
+    ) -> list[QueryResult]:
+        """Filter emails using composeable search queries.
+
+        Queries targeting the same folder are batched into a single Outlook
+        search using the merged date range, then post-filtered per query.
 
         Args:
-            keywords: List of keywords to search for in subject and body.
-                     If None or empty, no keyword filter is applied.
-            exact_match: When True the keyword must match the full subject/body.
-                        When False a substring (case-insensitive) match is used.
-            date_from: Only include emails received on or after this datetime.
-                      Defaults to None (no lower bound).
-            date_to: Only include emails received on or before this datetime.
-                    Defaults to None (no upper bound).
-            folder_name: Email folder to search in. Defaults to "Inbox".
+            queries: List of SearchQuery objects, each with composeable filters
+                    (FolderFilter, KeywordFilter, DateFilter, etc.).
 
         Returns:
-            A list of EmailRecord objects matching the filters.
+            A list of QueryResult objects, one per input query, each containing
+            the matching EmailRecord objects for that query.
 
         Raises:
-            ValueError: If folder_name does not exist or other validation errors.
+            ValueError: If a folder referenced in a FolderFilter does not exist.
         """
         ...
 

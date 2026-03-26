@@ -1,5 +1,16 @@
-from datetime import datetime
-from pydantic import BaseModel, Field, field_validator
+"""Result schemas for email queries."""
+
+from pydantic import BaseModel, Field
+
+from schemas.email import EmailRecord
+from schemas.filter import SearchQuery
+
+
+class QueryResult(BaseModel):
+    """Results grouped by query."""
+
+    query: SearchQuery
+    records: list[EmailRecord] = Field(description="Email records matching this query")
 
 
 class EmailRecord(BaseModel):
@@ -13,4 +24,5 @@ class EmailRecord(BaseModel):
     attachments: list[str] = Field(
         default_factory=list, description="List of attachment filenames"
     )
+
 
