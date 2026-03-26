@@ -328,13 +328,15 @@ class OutlookProvider:
         messages = folder.Items
         messages.Sort("[ReceivedTime]", True)
 
-        # Build Outlook restriction string for keywords + date range (server-side)
+        # Build server-side restriction: date range always works;
+        # keyword exact match uses [Subject] = "..." (also valid server-side);
+        # substring keyword search is not supported by Restrict() and must be client-side.
         restrictions = []
-        if keywords:
-            restrictions.append(self._build_keyword_restriction(keywords, exact_match))
+        if exact_match and keywords:
+            restrictions.append(self._build_keyword_restriction(keywords))
         if date_from is not None or date_to is not None:
             restrictions.append(self._build_date_restriction(date_from, date_to))
-        
+
         if restrictions:
             combined = " AND ".join(restrictions)
             print(f"Outlook restriction: {combined}")
@@ -363,28 +365,24 @@ class OutlookProvider:
 
         return results
 
-    def _build_keyword_restriction(self, keywords: list[str], exact_match: bool) -> str:
-        """Build Outlook restriction string for keywords (OR logic on subject).
-        
+    def _build_keyword_restriction(self, keywords: list[str]) -> str:
+        """Build Outlook restriction string for exact subject match (OR logic).
+
+        Note: Outlook's Restrict() does not support substring/contains matching.
+        This method is only valid for exact_match=True queries.
+        Substring matching must be done client-side in _apply_query_filters.
+
         Args:
-            keywords: List of keywords to search for.
-            exact_match: If True, match full subject exactly. If False, substring match.
-            
+            keywords: List of keywords for exact subject match.
+
         Returns:
-            Outlook restriction string for keywords matching any keyword in subject.
+            Outlook restriction string matching any keyword exactly.
         """
         if not keywords:
             return ""
-        
-        # Escape quotes by doubling them for Outlook restriction syntax
-        escaped_keywords = [kw.replace('"', '""') for kw in keywords]
-        
-        if exact_match:
-            # Exact match: [Subject] = "keyword"
-            conditions = [f'[Subject] = "{kw}"' for kw in escaped_keywords]
-        else:
-            # Substring match: [Subject] like "%keyword%"
-            conditions = [f'[Subject] like "%{kw}%"' for kw in escaped_keywords]
+        # Escape double quotes by doubling them
+        escaped = [kw.replace('"', '""') for kw in keywords]
+        conditions = [f'[Subject] = "{kw}"' for kw in escaped]
         return " OR ".join(conditions)
 
     def _build_date_restriction(
