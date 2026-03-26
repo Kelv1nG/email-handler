@@ -337,6 +337,7 @@ class OutlookProvider:
         
         if restrictions:
             combined = " AND ".join(restrictions)
+            print(f"Outlook restriction: {combined}")
             messages = messages.Restrict(combined)
 
         results: list[EmailRecord] = []
@@ -374,12 +375,16 @@ class OutlookProvider:
         """
         if not keywords:
             return ""
+        
+        # Escape quotes by doubling them for Outlook restriction syntax
+        escaped_keywords = [kw.replace('"', '""') for kw in keywords]
+        
         if exact_match:
             # Exact match: [Subject] = "keyword"
-            conditions = [f'[Subject] = "{kw}"' for kw in keywords]
+            conditions = [f'[Subject] = "{kw}"' for kw in escaped_keywords]
         else:
             # Substring match: [Subject] like "%keyword%"
-            conditions = [f'[Subject] like "%{kw}%"' for kw in keywords]
+            conditions = [f'[Subject] like "%{kw}%"' for kw in escaped_keywords]
         return " OR ".join(conditions)
 
     def _build_date_restriction(
