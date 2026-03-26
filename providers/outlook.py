@@ -362,9 +362,9 @@ class OutlookProvider:
         """
         if not keywords:
             return ""
-        escaped_keywords = [f'"{kw}"' for kw in keywords]
+        # Use Outlook's native restriction syntax: [Subject] like "%keyword%"
         or_conditions = " OR ".join(
-            f"@SQL=\"urn:schemas:httpmail:subject\" like '%{kw}%'" for kw in keywords
+            f'[Subject] like "%{kw}%"' for kw in keywords
         )
         return f"({or_conditions})"
 
