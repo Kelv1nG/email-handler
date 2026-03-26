@@ -1,7 +1,9 @@
 """Outlook email provider implementation."""
 
 from datetime import datetime
+from pathlib import Path
 from typing import Any
+import tempfile
 
 import win32com.client
 
@@ -23,6 +25,11 @@ class OutlookProvider:
         """Initialize Outlook provider with pywin32 COM dispatch."""
         self.outlook = win32com.client.Dispatch("Outlook.Application")
         self.namespace = self.outlook.GetNamespace("MAPI")
+        self._message_cache: dict[str, Any] = {}  # Cache for Outlook message objects
+
+    # ============================================================================
+    # Protocol Methods (EmailProvider Interface)
+    # ============================================================================
 
     def filter_emails(
         self,
@@ -87,9 +94,177 @@ class OutlookProvider:
                 body=message.Body or "",
                 attachments=attachments,
             )
+
+            # Cache the Outlook message object for later attachment retrieval
+            cache_key = self._get_cache_key(email_record)
+            self._message_cache[cache_key] = message
+
             results.append(email_record)
 
         return results
+
+    def search_attachments(
+        self,
+        email_records: list[EmailRecord],
+        attachment_names: list[str] | None = None,
+        exact_match: bool = False,
+    ) -> list[EmailRecord]:
+        """Search for emails containing specific attachments.
+
+        Args:
+            email_records: List of EmailRecord objects to search through.
+            attachment_names: List of attachment names to search for.
+                            If None or empty, all records are returned.
+            exact_match: When True match the full attachment filename exactly.
+                        When False match substring (case-insensitive).
+
+        Returns:
+            A list of EmailRecord objects that have matching attachments.
+        """
+        if not attachment_names:
+            return email_records
+
+        results: list[EmailRecord] = []
+
+        for record in email_records:
+            if not record.attachments:
+                continue
+
+            for attachment_name in attachment_names:
+                for filename in record.attachments:
+                    if exact_match:
+                        if attachment_name == filename:
+                            results.append(record)
+                            break
+                    else:
+                        if attachment_name.lower() in filename.lower():
+                            results.append(record)
+                            break
+
+                # Break out of attachment_names loop if we found a match
+                if results and results[-1] == record:
+                    break
+
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_results = []
+        for record in results:
+            record_id = id(record)
+            if record_id not in seen:
+                seen.add(record_id)
+                unique_results.append(record)
+
+        return unique_results
+
+    def save_attachments(
+        self,
+        email_records: list[EmailRecord],
+        save_path: str,
+    ) -> dict[str, list[str]]:
+        """Save attachments from email records to disk.
+
+        Args:
+            email_records: List of EmailRecord objects to extract attachments from.
+            save_path: Directory path where attachments will be saved.
+
+        Returns:
+            A dict mapping email subjects to lists of saved file paths.
+
+        Raises:
+            ValueError: If save_path does not exist or is not writable.
+        """
+        save_dir = Path(save_path)
+
+        if not save_dir.exists():
+            raise ValueError(f"Save path '{save_path}' does not exist.")
+
+        if not save_dir.is_dir():
+            raise ValueError(f"Save path '{save_path}' is not a directory.")
+
+        results: dict[str, list[str]] = {}
+
+        for record in email_records:
+            if not record.attachments:
+                continue
+
+            # Get the cached Outlook message
+            cache_key = self._get_cache_key(record)
+            message = self._message_cache.get(cache_key)
+
+            if not message:
+                print(f"Warning: Message not found in cache for subject '{record.subject}'")
+                continue
+
+            saved_files: list[str] = []
+
+            try:
+                for i in range(message.Attachments.Count):
+                    attachment = message.Attachments.Item(i + 1)
+                    filename = attachment.FileName
+                    file_path = save_dir / filename
+
+                    # Save attachment to disk
+                    attachment.SaveAsFile(str(file_path))
+                    saved_files.append(str(file_path))
+
+            except Exception as e:
+                print(f"Error saving attachments for '{record.subject}': {e}")
+                continue
+
+            if saved_files:
+                results[record.subject] = saved_files
+
+        return results
+
+    def get_attachment_content(
+        self,
+        email_record: EmailRecord,
+    ) -> dict[str, bytes]:
+        """Get attachment content directly from email without saving to disk.
+
+        Args:
+            email_record: EmailRecord to get attachments from.
+
+        Returns:
+            A dict mapping attachment filenames to their binary content.
+
+        Raises:
+            ValueError: If email record not found in cache.
+        """
+        cache_key = self._get_cache_key(email_record)
+        message = self._message_cache.get(cache_key)
+
+        if not message:
+            raise ValueError(
+                f"Email record for '{email_record.subject}' not found in cache. "
+                "Make sure to call filter_emails() first."
+            )
+
+        results: dict[str, bytes] = {}
+
+        try:
+            for i in range(message.Attachments.Count):
+                attachment = message.Attachments.Item(i + 1)
+                filename = attachment.FileName
+
+                # Save to temp file, read content, then delete temp file
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    temp_path = Path(tmpdir) / filename
+                    attachment.SaveAsFile(str(temp_path))
+
+                    # Read content into memory
+                    with open(temp_path, "rb") as f:
+                        content = f.read()
+                    results[filename] = content
+
+        except Exception as e:
+            raise ValueError(f"Error reading attachments: {e}") from e
+
+        return results
+
+    # ============================================================================
+    # Private Helper Methods
+    # ============================================================================
 
     def _get_folder(self, folder_name: str) -> Any:
         """Get folder by name (supports subfolders).
@@ -217,3 +392,14 @@ class OutlookProvider:
             ]
         except Exception:
             return []
+
+    def _get_cache_key(self, record: EmailRecord) -> str:
+        """Generate a cache key for an email record.
+
+        Args:
+            record: EmailRecord to generate cache key for.
+
+        Returns:
+            A unique cache key string.
+        """
+        return f"{record.sender_email}:{record.received_time.isoformat()}:{record.subject}"
