@@ -53,8 +53,14 @@ class OutlookProvider:
 
         for folder_name, indexed_queries in folder_groups.items():
             merged_date_from, merged_date_to = self._merge_date_ranges(indexed_queries)
-            folder_emails = self._search_folder(folder_name, merged_date_from, merged_date_to)
+            merged_keywords = self._merge_keywords(indexed_queries)
+            
+            # Single Outlook search with merged keywords + date range (server-side filtering)
+            folder_emails = self._search_folder(
+                folder_name, merged_keywords, merged_date_from, merged_date_to
+            )
 
+            # Post-filter each email against each query's specific keyword settings
             for idx, query in indexed_queries:
                 matched = self._apply_query_filters(folder_emails, query)
                 query_records[idx].extend(matched)
@@ -253,6 +259,15 @@ class OutlookProvider:
         ]
         return (min(date_froms) if date_froms else None, max(date_tos) if date_tos else None)
 
+    def _merge_keywords(self, indexed_queries: list[tuple[int, SearchQuery]]) -> list[str]:
+        """Collect and deduplicate keywords from all queries in a folder group."""
+        keywords = set()
+        for _, q in indexed_queries:
+            for f in q.filters:
+                if isinstance(f, KeywordFilter):
+                    keywords.update(f.keywords)
+        return list(keywords)
+
     def _apply_query_filters(
         self, emails: list[EmailRecord], query: SearchQuery
     ) -> list[EmailRecord]:
@@ -281,25 +296,37 @@ class OutlookProvider:
     def _search_folder(
         self,
         folder_name: str,
+        keywords: list[str] | None,
         date_from: datetime | None,
         date_to: datetime | None,
     ) -> list[EmailRecord]:
-        """Fetch all mail items from a folder within an optional date range.
+        """Fetch mail items from a folder with server-side filtering.
+
+        Keywords and date range are applied by Outlook before fetching results.
 
         Args:
             folder_name: Outlook folder to search.
+            keywords: Keywords to search for in subject (OR logic). None for no keyword filter.
             date_from: Lower bound for ReceivedTime (inclusive). None for no bound.
             date_to: Upper bound for ReceivedTime (inclusive). None for no bound.
 
         Returns:
-            List of EmailRecord objects (no keyword filtering applied).
+            List of EmailRecord objects matching the filters.
         """
         folder = self._get_folder(folder_name)
         messages = folder.Items
         messages.Sort("[ReceivedTime]", True)
 
+        # Build Outlook restriction string for keywords + date range (server-side)
+        restrictions = []
+        if keywords:
+            restrictions.append(self._build_keyword_restriction(keywords))
         if date_from is not None or date_to is not None:
-            messages = self._apply_date_filter(messages, date_from, date_to)
+            restrictions.append(self._build_date_restriction(date_from, date_to))
+        
+        if restrictions:
+            combined = " AND ".join(f"({r})" for r in restrictions)
+            messages = messages.Restrict(combined)
 
         results: list[EmailRecord] = []
         for message in messages:
@@ -323,6 +350,44 @@ class OutlookProvider:
             results.append(email_record)
 
         return results
+
+    def _build_keyword_restriction(self, keywords: list[str]) -> str:
+        """Build Outlook restriction string for keywords (OR logic on subject).
+        
+        Args:
+            keywords: List of keywords to search for.
+            
+        Returns:
+            Outlook restriction string for keywords matching any keyword in subject.
+        """
+        if not keywords:
+            return ""
+        escaped_keywords = [f'"{kw}"' for kw in keywords]
+        or_conditions = " OR ".join(
+            f"@SQL=\"urn:schemas:httpmail:subject\" like '%{kw}%'" for kw in keywords
+        )
+        return f"({or_conditions})"
+
+    def _build_date_restriction(
+        self, date_from: datetime | None, date_to: datetime | None
+    ) -> str:
+        """Build Outlook restriction string for date range.
+        
+        Args:
+            date_from: Start date (inclusive).
+            date_to: End date (inclusive).
+            
+        Returns:
+            Outlook restriction string for date range.
+        """
+        conditions = []
+        if date_from is not None:
+            formatted = format_outlook_date(date_from)
+            conditions.append(f"[ReceivedTime] >= '{formatted}'")
+        if date_to is not None:
+            formatted = format_outlook_date(date_to)
+            conditions.append(f"[ReceivedTime] <= '{formatted}'")
+        return " AND ".join(conditions) if conditions else ""
 
     def _get_folder(self, folder_name: str) -> Any:
         """Get folder by name (supports subfolders).
@@ -365,38 +430,6 @@ class OutlookProvider:
                 return inbox.Parent.Folders[folder_name]
             except Exception:
                 raise ValueError(f"Outlook folder '{folder_name}' not found.") from e
-
-    def _apply_date_filter(
-        self,
-        messages: Any,
-        date_from: datetime | None,
-        date_to: datetime | None,
-    ) -> Any:
-        """Build and apply date range restriction.
-
-        Args:
-            messages: Outlook messages collection.
-            date_from: Start date (inclusive).
-            date_to: End date (inclusive).
-
-        Returns:
-            Restricted messages collection.
-        """
-        filters: list[str] = []
-
-        if date_from is not None:
-            formatted_date = format_outlook_date(date_from)
-            filters.append(f"[ReceivedTime] >= '{formatted_date}'")
-
-        if date_to is not None:
-            formatted_date = format_outlook_date(date_to)
-            filters.append(f"[ReceivedTime] <= '{formatted_date}'")
-
-        if filters:
-            restriction = " AND ".join(filters)
-            return messages.Restrict(restriction)
-
-        return messages
 
     def _is_mail_item(self, message: Any) -> bool:
         """Check if message is a mail item (not meeting request, etc.).
