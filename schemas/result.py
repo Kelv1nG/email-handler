@@ -1,16 +1,9 @@
 """Result schemas for email queries."""
 
-from pydantic import BaseModel, Field
+from datetime import datetime
+from pydantic import BaseModel, Field, field_validator
 
-from schemas.email import EmailRecord
 from schemas.filter import SearchQuery
-
-
-class QueryResult(BaseModel):
-    """Results grouped by query."""
-
-    query: SearchQuery
-    records: list[EmailRecord] = Field(description="Email records matching this query")
 
 
 class EmailRecord(BaseModel):
@@ -25,4 +18,18 @@ class EmailRecord(BaseModel):
         default_factory=list, description="List of attachment filenames"
     )
 
+    @field_validator("sender_email", mode="before")
+    @classmethod
+    def validate_sender_email(cls, v):
+        """Ensure sender_email is not empty."""
+        if not v or not str(v).strip():
+            raise ValueError("sender_email cannot be empty")
+        return str(v).strip()
+
+
+class QueryResult(BaseModel):
+    """Results grouped by query."""
+
+    query: SearchQuery
+    records: list[EmailRecord] = Field(description="Email records matching this query")
 

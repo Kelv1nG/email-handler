@@ -3,7 +3,6 @@
 from datetime import datetime
 
 from providers import OutlookProvider
-from schemas import EmailRecord
 from schemas.filter import DateFilter, FolderFilter, KeywordFilter, SearchQuery
 
 

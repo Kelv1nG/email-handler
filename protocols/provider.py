@@ -2,9 +2,8 @@
 
 from typing import Protocol
 
-from schemas.email import EmailRecord
 from schemas.filter import SearchQuery
-from schemas.result import QueryResult
+from schemas.result import EmailRecord, QueryResult
 
 
 class EmailProvider(Protocol):

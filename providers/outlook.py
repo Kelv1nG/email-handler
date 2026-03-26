@@ -8,9 +8,8 @@ import tempfile
 
 import win32com.client
 
-from schemas.email import EmailRecord
 from schemas.filter import DateFilter, FolderFilter, KeywordFilter, SearchQuery
-from schemas.result import QueryResult
+from schemas.result import EmailRecord, QueryResult
 from utils.dates import format_outlook_date
 
 # Outlook object model constants from pywin32
