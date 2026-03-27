@@ -1,7 +1,6 @@
 """Custom validators for email records."""
 
 import re
-from typing import Any
 
 
 def validate_email_format(email: str) -> bool:

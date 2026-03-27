@@ -9,16 +9,18 @@ from schemas.filter import DateFilter, FolderFilter, KeywordFilter, SearchQuery
 def main():
     # Example: Multiple named queries — keyword filters in folder
     provider = OutlookProvider()
+    mediopac = "mediopac"
+    mediogl = "mediogl"
     results = provider.filter_emails([
         SearchQuery(
-            name="mediopac_monthly",
+            name=mediopac,
             filters=[
                 FolderFilter(folder_name="Inbox/ORT"),
                 KeywordFilter(keywords=["MEDIOPAC - Monthly - Equity Country Currency Exposure"], exact_match=True),
             ]
         ),
         SearchQuery(
-            name="mediogl_monthly",
+            name=mediogl,
             filters=[
                 FolderFilter(folder_name="Inbox/ORT"),
                 KeywordFilter(keywords=["MEDIOGL - Monthly - Equity Country Currency Exposure"], exact_match=True)
