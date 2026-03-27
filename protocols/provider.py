@@ -2,7 +2,7 @@
 
 from typing import Protocol
 
-from schemas.filter import SearchQuery
+from schemas.filter import AttachmentQuery, SearchQuery
 from schemas.result import EmailRecord, QueryResult
 
 
@@ -12,7 +12,7 @@ class EmailProvider(Protocol):
     def filter_emails(
         self,
         queries: list[SearchQuery],
-    ) -> list[QueryResult]:
+    ) -> dict[str, QueryResult]:
         """Filter emails using composeable search queries.
 
         Queries targeting the same folder are batched into a single Outlook
@@ -23,31 +23,31 @@ class EmailProvider(Protocol):
                     (FolderFilter, KeywordFilter, DateFilter, etc.).
 
         Returns:
-            A list of QueryResult objects, one per input query, each containing
+            A dict mapping query names to QueryResult objects, each containing
             the matching EmailRecord objects for that query.
 
         Raises:
-            ValueError: If a folder referenced in a FolderFilter does not exist.
+            ValueError: If a folder referenced in a FolderFilter does not exist,
+                       or if duplicate query names are provided.
         """
         ...
 
-    def search_attachments(
+    def filter_attachments(
         self,
         email_records: list[EmailRecord],
-        attachment_names: list[str] | None = None,
-        exact_match: bool = False,
-    ) -> list[EmailRecord]:
-        """Search for emails containing specific attachments.
+        attachment_query: AttachmentQuery,
+    ) -> dict[str, bytes]:
+        """Search for emails with specific attachments and return their content.
 
         Args:
             email_records: List of EmailRecord objects to search through.
-            attachment_names: List of attachment names to search for.
-                            If None or empty, no filtering is applied.
-            exact_match: When True match the full attachment filename exactly.
-                        When False match substring (case-insensitive).
+            attachment_query: AttachmentQuery object with filters to apply.
 
         Returns:
-            A list of EmailRecord objects that have matching attachments.
+            A dict mapping attachment filenames to their binary content.
+
+        Raises:
+            ValueError: If email record not found in cache.
         """
         ...
 

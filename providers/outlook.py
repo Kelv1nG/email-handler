@@ -33,7 +33,7 @@ class OutlookProvider:
     # Protocol Methods (EmailProvider Interface)
     # ============================================================================
 
-    def filter_emails(self, queries: list[SearchQuery]) -> list[QueryResult]:
+    def filter_emails(self, queries: list[SearchQuery]) -> dict[str, QueryResult]:
         """Filter Outlook emails using composeable search queries.
 
         Queries targeting the same folder are batched into a single Outlook
@@ -43,17 +43,24 @@ class OutlookProvider:
             queries: List of SearchQuery objects with composeable filters.
 
         Returns:
-            A list of QueryResult objects, one per input query.
+            A dict mapping query names to QueryResult objects, one per input query.
 
         Raises:
-            ValueError: If a folder referenced in a FolderFilter does not exist.
+            ValueError: If a folder referenced in a FolderFilter does not exist,
+                       or if duplicate query names are provided.
         """
+        # Validate unique query names
+        query_names = [q.name for q in queries]
+        if len(query_names) != len(set(query_names)):
+            duplicates = [name for name in set(query_names) if query_names.count(name) > 1]
+            raise ValueError(f"Duplicate query names found: {duplicates}")
+        
         folder_groups = self._group_queries_by_folder(queries)
-        query_records: dict[int, list[EmailRecord]] = {i: [] for i in range(len(queries))}
+        query_records: dict[str, list[EmailRecord]] = {q.name: [] for q in queries}
 
-        for folder_name, indexed_queries in folder_groups.items():
-            merged_date_from, merged_date_to = self._merge_date_ranges(indexed_queries)
-            merged_keywords, all_exact_match = self._merge_keywords(indexed_queries)
+        for folder_name, queries_in_folder in folder_groups.items():
+            merged_date_from, merged_date_to = self._merge_date_ranges(queries_in_folder)
+            merged_keywords, all_exact_match = self._merge_keywords(queries_in_folder)
             
             # Single Outlook search with merged keywords + date range (server-side filtering)
             folder_emails = self._search_folder(
@@ -61,65 +68,34 @@ class OutlookProvider:
             )
 
             # Post-filter each email against each query's specific keyword settings
-            for idx, query in indexed_queries:
+            for query in queries_in_folder:
                 matched = self._apply_query_filters(folder_emails, query)
-                query_records[idx].extend(matched)
+                query_records[query.name].extend(matched)
 
-        return [QueryResult(query=queries[i], records=query_records[i]) for i in range(len(queries))]
+        return {q.name: QueryResult(query=q, records=query_records[q.name]) for q in queries}
 
-    def search_attachments(
+    def filter_attachments(
         self,
         email_records: list[EmailRecord],
-        attachment_names: list[str] | None = None,
-        exact_match: bool = False,
-    ) -> list[EmailRecord]:
-        """Search for emails containing specific attachments.
+        attachment_query: AttachmentQuery
+    ) -> dict[str, bytes]:
+        """Search for emails with specific attachments and return their content.
 
         Args:
             email_records: List of EmailRecord objects to search through.
-            attachment_names: List of attachment names to search for.
-                            If None or empty, all records are returned.
-            exact_match: When True match the full attachment filename exactly.
-                        When False match substring (case-insensitive).
+            attachment_query: AttachmentQuery object with filters to apply.
 
         Returns:
-            A list of EmailRecord objects that have matching attachments.
+            A dict mapping attachment filenames to their binary content.
+
+        Raises:
+            ValueError: If email record not found in cache.
         """
-        if not attachment_names:
-            return email_records
+        attachment_names, exact_match = self._extract_attachment_filters(attachment_query)
+        matching_records = self._search_attachment_records(email_records, attachment_names, exact_match)
+        return self._extract_attachment_contents(matching_records, attachment_query)
 
-        results: list[EmailRecord] = []
-
-        for record in email_records:
-            if not record.attachments:
-                continue
-
-            for attachment_name in attachment_names:
-                for filename in record.attachments:
-                    if exact_match:
-                        if attachment_name == filename:
-                            results.append(record)
-                            break
-                    else:
-                        if attachment_name.lower() in filename.lower():
-                            results.append(record)
-                            break
-
-                # Break out of attachment_names loop if we found a match
-                if results and results[-1] == record:
-                    break
-
-        # Remove duplicates while preserving order
-        seen = set()
-        unique_results = []
-        for record in results:
-            record_id = id(record)
-            if record_id not in seen:
-                seen.add(record_id)
-                unique_results.append(record)
-
-        return unique_results
-
+    # TODO more granular save attachments
     def save_attachments(
         self,
         email_records: list[EmailRecord],
@@ -232,35 +208,35 @@ class OutlookProvider:
 
     def _group_queries_by_folder(
         self, queries: list[SearchQuery]
-    ) -> dict[str, list[tuple[int, SearchQuery]]]:
-        """Group queries by their folder name, preserving original index."""
-        groups: dict[str, list[tuple[int, SearchQuery]]] = defaultdict(list)
-        for i, query in enumerate(queries):
+    ) -> dict[str, list[SearchQuery]]:
+        """Group queries by their folder name."""
+        groups: dict[str, list[SearchQuery]] = defaultdict(list)
+        for query in queries:
             folder_filter = next((f for f in query.filters if isinstance(f, FolderFilter)), None)
             folder_name = folder_filter.folder_name if folder_filter else "Inbox"
-            groups[folder_name].append((i, query))
+            groups[folder_name].append(query)
         return groups
 
     def _merge_date_ranges(
-        self, indexed_queries: list[tuple[int, SearchQuery]]
+        self, queries: list[SearchQuery]
     ) -> tuple[datetime | None, datetime | None]:
         """Return the widest date range covering all queries in a folder group."""
         date_froms = [
             f.date_from
-            for _, q in indexed_queries
+            for q in queries
             for f in q.filters
             if isinstance(f, DateFilter) and f.date_from is not None
         ]
         date_tos = [
             f.date_to
-            for _, q in indexed_queries
+            for q in queries
             for f in q.filters
             if isinstance(f, DateFilter) and f.date_to is not None
         ]
         return (min(date_froms) if date_froms else None, max(date_tos) if date_tos else None)
 
     def _merge_keywords(
-        self, indexed_queries: list[tuple[int, SearchQuery]]
+        self, queries: list[SearchQuery]
     ) -> tuple[list[str], bool]:
         """Collect keywords and determine if all are exact match.
         
@@ -269,7 +245,7 @@ class OutlookProvider:
         """
         keywords = set()
         all_exact_match = True
-        for _, q in indexed_queries:
+        for q in queries:
             for f in q.filters:
                 if isinstance(f, KeywordFilter):
                     keywords.update(f.keywords)
@@ -301,6 +277,158 @@ class OutlookProvider:
 
             results.append(email)
         return results
+
+    def _extract_attachment_filters(
+        self, attachment_query: AttachmentQuery
+    ) -> tuple[list[str], bool]:
+        """Extract attachment names and exact_match setting from query filters.
+        
+        Args:
+            attachment_query: AttachmentQuery object with filters.
+            
+        Returns:
+            Tuple of (attachment names list, exact_match boolean).
+        """
+        attachment_names: list[str] = []
+        exact_match = False
+        
+        for filter_obj in attachment_query.filters:
+            if isinstance(filter_obj, KeywordFilter):
+                attachment_names.extend(filter_obj.keywords)
+                exact_match = filter_obj.exact_match
+        
+        return attachment_names, exact_match
+
+    def _search_attachment_records(
+        self,
+        email_records: list[EmailRecord],
+        attachment_names: list[str],
+        exact_match: bool,
+    ) -> list[EmailRecord]:
+        """Find emails with matching attachments.
+        
+        Args:
+            email_records: List of EmailRecord objects to search through.
+            attachment_names: Attachment names to search for.
+            exact_match: Whether to do exact match or substring match.
+            
+        Returns:
+            List of EmailRecord objects with matching attachments, deduplicated.
+        """
+        if not attachment_names:
+            return [r for r in email_records if r.attachments]
+
+        matching_records: list[EmailRecord] = []
+
+        for record in email_records:
+            if not record.attachments:
+                continue
+
+            for attachment_name in attachment_names:
+                for filename in record.attachments:
+                    if exact_match:
+                        if attachment_name == filename:
+                            matching_records.append(record)
+                            break
+                    else:
+                        if attachment_name.lower() in filename.lower():
+                            matching_records.append(record)
+                            break
+
+                # Break out of attachment_names loop if we found a match
+                if matching_records and matching_records[-1] == record:
+                    break
+
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_records = []
+        for record in matching_records:
+            record_id = id(record)
+            if record_id not in seen:
+                seen.add(record_id)
+                unique_records.append(record)
+        
+        return unique_records
+
+    def _extract_attachment_contents(
+        self,
+        email_records: list[EmailRecord],
+        attachment_query: AttachmentQuery,
+    ) -> dict[str, bytes]:
+        """Extract attachment content from email records.
+        
+        Args:
+            email_records: List of EmailRecord objects to extract from.
+            attachment_query: AttachmentQuery object with filters to apply.
+            
+        Returns:
+            A dict mapping attachment filenames to their binary content.
+            
+        Raises:
+            ValueError: If email record not found in cache or read error occurs.
+        """
+        # Extract filter parameters from query
+        attachment_names, exact_match = self._extract_attachment_filters(attachment_query)
+        
+        results: dict[str, bytes] = {}
+
+        for record in email_records:
+            cache_key = self._get_cache_key(record)
+            message = self._message_cache.get(cache_key)
+
+            if not message:
+                raise ValueError(
+                    f"Email record for '{record.subject}' not found in cache. "
+                    "Make sure to call filter_emails() first."
+                )
+
+            try:
+                for i in range(message.Attachments.Count):
+                    attachment = message.Attachments.Item(i + 1)
+                    filename = attachment.FileName
+
+                    # Skip if searching for specific names and this doesn't match
+                    if attachment_names and not self._filename_matches(
+                        filename, attachment_names, exact_match
+                    ):
+                        continue
+
+                    # Save to temp file, read content, then delete temp file
+                    with tempfile.TemporaryDirectory() as tmpdir:
+                        temp_path = Path(tmpdir) / filename
+                        attachment.SaveAsFile(str(temp_path))
+
+                        # Read content into memory
+                        with open(temp_path, "rb") as f:
+                            content = f.read()
+                        results[filename] = content
+
+            except Exception as e:
+                raise ValueError(f"Error reading attachments: {e}") from e
+
+        return results
+
+    def _filename_matches(
+        self, filename: str, patterns: list[str], exact_match: bool
+    ) -> bool:
+        """Check if filename matches any pattern.
+        
+        Args:
+            filename: Filename to check.
+            patterns: List of patterns to match against.
+            exact_match: If True, exact match; if False, substring match.
+            
+        Returns:
+            True if filename matches any pattern.
+        """
+        for pattern in patterns:
+            if exact_match:
+                if pattern == filename:
+                    return True
+            else:
+                if pattern.lower() in filename.lower():
+                    return True
+        return False
 
     def _search_folder(
         self,

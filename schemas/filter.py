@@ -27,5 +27,11 @@ class DateFilter(BaseFilter):
 
 class SearchQuery(BaseModel):
     """Composeable search query with multiple filter types."""
-    filters: list[BaseFilter] = Field(description="List of filters to apply (FolderFilter, KeywordFilter, DateFilter, etc.)")
+    name: str = Field(description="Unique identifier for this query")
+    filters: list[FolderFilter | KeywordFilter | DateFilter] = Field(description="List of filters to apply (FolderFilter, KeywordFilter, DateFilter, etc.)")
+
+
+class AttachmentQuery(BaseModel):
+    filters: list[KeywordFilter] = Field(description="List of filters to apply")
+
 
