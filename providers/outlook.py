@@ -8,8 +8,8 @@ import tempfile
 
 import win32com.client
 
-from schemas.filter import AttachmentQuery, DateFilter, FolderFilter, KeywordFilter, SearchQuery
-from schemas.result import EmailRecord, QueryResult
+from schemas.filter import AttachmentFilter, BodyFilter, DateFilter, FolderFilter, KeywordFilter, SearchQuery
+from schemas.result import AttachmentContent, BodyContent, EmailKey, EmailRecord, ExtractionResult, Filename, QueryName, QueryResult
 from utils.dates import format_outlook_date
 
 # Outlook object model constants from pywin32
@@ -33,7 +33,7 @@ class OutlookProvider:
     # Protocol Methods (EmailProvider Interface)
     # ============================================================================
 
-    def filter_emails(self, queries: list[SearchQuery]) -> dict[str, QueryResult]:
+    def filter_emails(self, queries: list[SearchQuery]) -> dict[QueryName, QueryResult]:
         """Filter Outlook emails using composeable search queries.
 
         Queries targeting the same folder are batched into a single Outlook
@@ -56,7 +56,7 @@ class OutlookProvider:
             raise ValueError(f"Duplicate query names found: {duplicates}")
         
         folder_groups = self._group_queries_by_folder(queries)
-        query_records: dict[str, list[EmailRecord]] = {q.name: [] for q in queries}
+        query_records: dict[QueryName, list[EmailRecord]] = {q.name: [] for q in queries}
 
         for folder_name, queries_in_folder in folder_groups.items():
             merged_date_from, merged_date_to = self._merge_date_ranges(queries_in_folder)
@@ -74,11 +74,58 @@ class OutlookProvider:
 
         return {q.name: QueryResult(query=q, records=query_records[q.name]) for q in queries}
 
+    def extract_emails(self, query: SearchQuery) -> ExtractionResult:
+        """Filter emails then optionally extract attachments and body content.
+
+        Args:
+            query: SearchQuery with email_filters and optional attachment_filter/body_filter.
+
+        Returns:
+            ExtractionResult with emails, attachments dict, and bodies dict.
+            On failure, returns an ExtractionResult with error set.
+        """
+        try:
+            query_results = self.filter_emails([query])
+            filtered_emails = query_results[query.name].records
+
+            attachments: dict[EmailKey, AttachmentContent] = {}
+            if query.attachment_filter is not None:
+                attachments = self._extract_attachments_by_email(filtered_emails, query.attachment_filter)
+
+            bodies: dict[EmailKey, BodyContent] = {}
+            if query.body_filter is not None:
+                bodies = self.filter_body(filtered_emails, query.body_filter)
+
+            return ExtractionResult(emails=filtered_emails, attachments=attachments, bodies=bodies)
+
+        except Exception as e:
+            return ExtractionResult(error=str(e))
+
+    def filter_body(
+        self,
+        emails: list[EmailRecord],
+        body_filter: BodyFilter,
+    ) -> dict[EmailKey, BodyContent]:
+        """Filter emails by body content and return matching bodies.
+
+        Args:
+            emails: List of EmailRecord objects to search through.
+            body_filter: BodyFilter with keywords and match mode.
+
+        Returns:
+            Dict mapping 'subject:timestamp' keys to body text for matching emails.
+        """
+        result: dict[EmailKey, BodyContent] = {}
+        for email in emails:
+            if self._matches_keywords(email.body, body_filter.keywords, body_filter.exact_match):
+                result[self._make_email_key(email)] = email.body
+        return result
+
     def filter_attachments(
         self,
         email_records: list[EmailRecord],
-        attachment_query: AttachmentQuery
-    ) -> dict[str, bytes]:
+        attachment_query: AttachmentFilter
+    ) -> dict[Filename, bytes]:
         """Search for emails with specific attachments and return their content.
 
         Args:
@@ -159,7 +206,7 @@ class OutlookProvider:
     def get_attachment_content(
         self,
         email_record: EmailRecord,
-    ) -> dict[str, bytes]:
+    ) -> dict[Filename, bytes]:
         """Get attachment content directly from email without saving to disk.
 
         Args:
@@ -180,7 +227,7 @@ class OutlookProvider:
                 "Make sure to call filter_emails() first."
             )
 
-        results: dict[str, bytes] = {}
+        results: dict[Filename, bytes] = {}
 
         try:
             for i in range(message.Attachments.Count):
@@ -212,7 +259,7 @@ class OutlookProvider:
         """Group queries by their folder name."""
         groups: dict[str, list[SearchQuery]] = defaultdict(list)
         for query in queries:
-            folder_filter = next((f for f in query.filters if isinstance(f, FolderFilter)), None)
+            folder_filter = next((f for f in query.email_filters if isinstance(f, FolderFilter)), None)
             folder_name = folder_filter.folder_name if folder_filter else "Inbox"
             groups[folder_name].append(query)
         return groups
@@ -224,13 +271,13 @@ class OutlookProvider:
         date_froms = [
             f.date_from
             for q in queries
-            for f in q.filters
+            for f in q.email_filters
             if isinstance(f, DateFilter) and f.date_from is not None
         ]
         date_tos = [
             f.date_to
             for q in queries
-            for f in q.filters
+            for f in q.email_filters
             if isinstance(f, DateFilter) and f.date_to is not None
         ]
         return (min(date_froms) if date_froms else None, max(date_tos) if date_tos else None)
@@ -246,7 +293,7 @@ class OutlookProvider:
         keywords = set()
         all_exact_match = True
         for q in queries:
-            for f in q.filters:
+            for f in q.email_filters:
                 if isinstance(f, KeywordFilter):
                     keywords.update(f.keywords)
                     if not f.exact_match:
@@ -257,8 +304,8 @@ class OutlookProvider:
         self, emails: list[EmailRecord], query: SearchQuery
     ) -> list[EmailRecord]:
         """Post-filter a list of emails against a single query's keyword and date filters."""
-        keyword_filter = next((f for f in query.filters if isinstance(f, KeywordFilter)), None)
-        date_filter = next((f for f in query.filters if isinstance(f, DateFilter)), None)
+        keyword_filter = next((f for f in query.email_filters if isinstance(f, KeywordFilter)), None)
+        date_filter = next((f for f in query.email_filters if isinstance(f, DateFilter)), None)
 
         results = []
         for email in emails:
@@ -279,12 +326,12 @@ class OutlookProvider:
         return results
 
     def _extract_attachment_filters(
-        self, attachment_query: AttachmentQuery
+        self, attachment_query: AttachmentFilter
     ) -> tuple[list[str], bool]:
         """Extract attachment names and exact_match setting from query filters.
         
         Args:
-            attachment_query: AttachmentQuery object with filters.
+            attachment_query: AttachmentFilter object with filters.
             
         Returns:
             Tuple of (attachment names list, exact_match boolean).
@@ -353,13 +400,13 @@ class OutlookProvider:
     def _extract_attachment_contents(
         self,
         email_records: list[EmailRecord],
-        attachment_query: AttachmentQuery,
-    ) -> dict[str, bytes]:
+        attachment_query: AttachmentFilter,
+    ) -> dict[Filename, bytes]:
         """Extract attachment content from email records.
         
         Args:
             email_records: List of EmailRecord objects to extract from.
-            attachment_query: AttachmentQuery object with filters to apply.
+            attachment_query: AttachmentFilter object with filters to apply.
             
         Returns:
             A dict mapping attachment filenames to their binary content.
@@ -370,7 +417,7 @@ class OutlookProvider:
         # Extract filter parameters from query
         attachment_names, exact_match = self._extract_attachment_filters(attachment_query)
         
-        results: dict[str, bytes] = {}
+        results: dict[Filename, bytes] = {}
 
         for record in email_records:
             cache_key = self._get_cache_key(record)
@@ -639,3 +686,41 @@ class OutlookProvider:
             A unique cache key string.
         """
         return f"{record.sender_email}:{record.received_time.isoformat()}:{record.subject}"
+
+    def _make_email_key(self, record: EmailRecord) -> str:
+        """Generate a user-facing key for an email record.
+
+        Args:
+            record: EmailRecord to generate key for.
+
+        Returns:
+            Key string in 'subject:timestamp' format.
+        """
+        return f"{record.subject}:{record.received_time.isoformat()}"
+
+    def _extract_attachments_by_email(
+        self,
+        emails: list[EmailRecord],
+        attachment_filter: AttachmentFilter,
+    ) -> dict[EmailKey, AttachmentContent]:
+        """Extract attachment content from emails, grouped by email key.
+
+        Args:
+            emails: List of EmailRecord objects to extract from.
+            attachment_filter: AttachmentFilter specifying which attachments to include.
+
+        Returns:
+            Dict mapping 'subject:timestamp' keys to {filename: content} dicts.
+        """
+        attachment_names, exact_match = self._extract_attachment_filters(attachment_filter)
+        result: dict[EmailKey, AttachmentContent] = {}
+
+        for record in emails:
+            matching = self._search_attachment_records([record], attachment_names, exact_match)
+            if not matching:
+                continue
+            content = self._extract_attachment_contents(matching, attachment_filter)
+            if content:
+                result[self._make_email_key(record)] = content
+
+        return result

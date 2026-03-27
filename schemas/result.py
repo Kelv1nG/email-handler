@@ -5,6 +5,12 @@ from pydantic import BaseModel, Field, field_validator
 
 from schemas.filter import SearchQuery
 
+EmailKey = str  # "subject:timestamp" format
+AttachmentContent = dict[str, bytes]  # {filename: bytes}
+BodyContent = str  # Email body text
+QueryName = str  # Query name identifier
+Filename = str  # Attachment filename
+
 
 class EmailRecord(BaseModel):
     """Validated email record from email providers."""
@@ -32,4 +38,21 @@ class QueryResult(BaseModel):
 
     query: SearchQuery
     records: list[EmailRecord] = Field(description="Email records matching this query")
+
+
+class ExtractionResult(BaseModel):
+    """Result from a full extraction pipeline (filter emails + attachments + body)."""
+
+    emails: list[EmailRecord] = Field(
+        default_factory=list, description="Emails matching the query"
+    )
+    attachments: dict[EmailKey, AttachmentContent] = Field(
+        default_factory=dict,
+        description="Attachments keyed by email key, with filename to raw bytes mapping",
+    )
+    bodies: dict[EmailKey, BodyContent] = Field(
+        default_factory=dict,
+        description="Body text keyed by email key for emails matching the body filter",
+    )
+    error: str | None = Field(default=None, description="Error message if extraction failed")
 

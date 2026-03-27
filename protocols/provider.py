@@ -2,29 +2,39 @@
 
 from typing import Protocol
 
-from schemas.filter import AttachmentQuery, SearchQuery
-from schemas.result import EmailRecord, QueryResult
+from schemas.filter import AttachmentFilter, BodyFilter, SearchQuery
+from schemas.result import BodyContent, EmailKey, EmailRecord, ExtractionResult, Filename, QueryName, QueryResult
 
 
 class EmailProvider(Protocol):
     """Protocol for email provider implementations."""
 
+    def extract_emails(
+        self,
+        query: SearchQuery,
+    ) -> ExtractionResult:
+        """Filter emails then optionally extract attachments and body content.
+
+        Args:
+            query: SearchQuery with email_filters and optional attachment_filter/body_filter.
+
+        Returns:
+            ExtractionResult with emails, attachments dict, and bodies dict.
+            On failure, returns an ExtractionResult with error set.
+        """
+        ...
+
     def filter_emails(
         self,
         queries: list[SearchQuery],
-    ) -> dict[str, QueryResult]:
+    ) -> dict[QueryName, QueryResult]:
         """Filter emails using composeable search queries.
 
-        Queries targeting the same folder are batched into a single Outlook
-        search using the merged date range, then post-filtered per query.
-
         Args:
-            queries: List of SearchQuery objects, each with composeable filters
-                    (FolderFilter, KeywordFilter, DateFilter, etc.).
+            queries: List of SearchQuery objects, each with composeable filters.
 
         Returns:
-            A dict mapping query names to QueryResult objects, each containing
-            the matching EmailRecord objects for that query.
+            A dict mapping query names to QueryResult objects.
 
         Raises:
             ValueError: If a folder referenced in a FolderFilter does not exist,
@@ -32,16 +42,32 @@ class EmailProvider(Protocol):
         """
         ...
 
+    def filter_body(
+        self,
+        emails: list[EmailRecord],
+        body_filter: BodyFilter,
+    ) -> dict[EmailKey, BodyContent]:
+        """Filter emails by body content and return matching bodies.
+
+        Args:
+            emails: List of EmailRecord objects to search through.
+            body_filter: BodyFilter with keywords and match mode.
+
+        Returns:
+            Dict mapping 'subject:timestamp' keys to body text for matching emails.
+        """
+        ...
+
     def filter_attachments(
         self,
         email_records: list[EmailRecord],
-        attachment_query: AttachmentQuery,
-    ) -> dict[str, bytes]:
+        attachment_filter: AttachmentFilter,
+    ) -> dict[Filename, bytes]:
         """Search for emails with specific attachments and return their content.
 
         Args:
             email_records: List of EmailRecord objects to search through.
-            attachment_query: AttachmentQuery object with filters to apply.
+            attachment_filter: AttachmentFilter with filters to apply.
 
         Returns:
             A dict mapping attachment filenames to their binary content.
@@ -73,7 +99,7 @@ class EmailProvider(Protocol):
     def get_attachment_content(
         self,
         email_record: EmailRecord,
-    ) -> dict[str, bytes]:
+    ) -> dict[Filename, bytes]:
         """Get attachment content directly from email without saving to disk.
 
         Args:
