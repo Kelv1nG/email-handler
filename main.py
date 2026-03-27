@@ -16,14 +16,14 @@ def main():
             name=mediopac,
             filters=[
                 FolderFilter(folder_name="Inbox/ORT"),
-                KeywordFilter(keywords=["MEDIOPAC - Monthly - Equity Country Currency Exposure"], exact_match=True),
+                KeywordFilter(keywords=["MEDIOPAC - Monthly - Equity Country Currency Exposure Report"], exact_match=True),
             ]
         ),
         SearchQuery(
             name=mediogl,
             filters=[
                 FolderFilter(folder_name="Inbox/ORT"),
-                KeywordFilter(keywords=["MEDIOGL - Monthly - Equity Country Currency Exposure"], exact_match=True)
+                KeywordFilter(keywords=["MEDIOGL - Monthly - Equity Country Currency Exposure Report"], exact_match=True)
             ]
         )
     ])
