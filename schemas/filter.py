@@ -1,8 +1,10 @@
 from __future__ import annotations
 from datetime import datetime
+from typing import TYPE_CHECKING
 from pydantic import BaseModel, Field
 
-from schemas.result import QueryName
+if TYPE_CHECKING:
+    from schemas.result import QueryName
 
 
 class BaseFilter(BaseModel):
