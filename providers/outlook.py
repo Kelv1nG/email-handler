@@ -8,6 +8,7 @@ import tempfile
 
 import win32com.client
 
+from exceptions import AttachmentReadError, DuplicateQueryNamesError, EmailNotInCacheError, FolderNotFoundError, InvalidSavePathError
 from schemas.filter import AttachmentFilter, BodyFilter, DateFilter, FolderFilter, KeywordFilter, SearchQuery
 from schemas.result import AttachmentContent, BodyContent, EmailKey, EmailRecord, ExtractionResult, Filename, QueryName, QueryResult
 from utils.dates import format_outlook_date
@@ -53,7 +54,7 @@ class OutlookProvider:
         query_names = [q.name for q in queries]
         if len(query_names) != len(set(query_names)):
             duplicates = [name for name in set(query_names) if query_names.count(name) > 1]
-            raise ValueError(f"Duplicate query names found: {duplicates}")
+            raise DuplicateQueryNamesError(f"Duplicate query names found: {duplicates}")
         
         folder_groups = self._group_queries_by_folder(queries)
         query_records: dict[QueryName, list[EmailRecord]] = {q.name: [] for q in queries}
@@ -163,10 +164,10 @@ class OutlookProvider:
         save_dir = Path(save_path)
 
         if not save_dir.exists():
-            raise ValueError(f"Save path '{save_path}' does not exist.")
+            raise InvalidSavePathError(f"Save path '{save_path}' does not exist.")
 
         if not save_dir.is_dir():
-            raise ValueError(f"Save path '{save_path}' is not a directory.")
+            raise InvalidSavePathError(f"Save path '{save_path}' is not a directory.")
 
         results: dict[str, list[str]] = {}
 
@@ -222,7 +223,7 @@ class OutlookProvider:
         message = self._message_cache.get(cache_key)
 
         if not message:
-            raise ValueError(
+            raise EmailNotInCacheError(
                 f"Email record for '{email_record.subject}' not found in cache. "
                 "Make sure to call filter_emails() first."
             )
@@ -245,7 +246,7 @@ class OutlookProvider:
                     results[filename] = content
 
         except Exception as e:
-            raise ValueError(f"Error reading attachments: {e}") from e
+            raise AttachmentReadError(f"Error reading attachments: {e}") from e
 
         return results
 
@@ -424,7 +425,7 @@ class OutlookProvider:
             message = self._message_cache.get(cache_key)
 
             if not message:
-                raise ValueError(
+                raise EmailNotInCacheError(
                     f"Email record for '{record.subject}' not found in cache. "
                     "Make sure to call filter_emails() first."
                 )
@@ -450,8 +451,10 @@ class OutlookProvider:
                             content = f.read()
                         results[filename] = content
 
+            except EmailNotInCacheError:
+                raise
             except Exception as e:
-                raise ValueError(f"Error reading attachments: {e}") from e
+                raise AttachmentReadError(f"Error reading attachments: {e}") from e
 
         return results
 
@@ -606,7 +609,7 @@ class OutlookProvider:
                 try:
                     folder = folder.Folders[part]
                 except Exception as e:
-                    raise ValueError(f"Outlook folder '{folder_name}' not found.") from e
+                    raise FolderNotFoundError(f"Outlook folder '{folder_name}' not found.") from e
             return folder
 
         # Handle single folder names
@@ -621,7 +624,7 @@ class OutlookProvider:
             try:
                 return inbox.Parent.Folders[folder_name]
             except Exception:
-                raise ValueError(f"Outlook folder '{folder_name}' not found.") from e
+                raise FolderNotFoundError(f"Outlook folder '{folder_name}' not found.") from e
 
     def _is_mail_item(self, message: Any) -> bool:
         """Check if message is a mail item (not meeting request, etc.).
