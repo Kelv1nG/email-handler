@@ -450,8 +450,9 @@ class OutlookProvider:
                         continue
 
                     # Save to temp file, read content, then delete temp file
-                with tempfile.TemporaryDirectory(dir=self._temp_dir) as tmpdir:
+                    with tempfile.TemporaryDirectory(dir=self._temp_dir) as tmpdir:
                         temp_path = Path(tmpdir) / filename
+                        attachment.SaveAsFile(str(temp_path))
 
                         # Read content into memory
                         with open(temp_path, "rb") as f:
