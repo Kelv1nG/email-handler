@@ -6,12 +6,11 @@ from pathlib import Path
 from typing import Literal
 from pydantic import BaseModel, Field, field_validator
 
-from schemas.filter import SearchQuery
+from schemas.filter import QueryName, SearchQuery
 
 EmailKey = str  # "subject:timestamp" format
 AttachmentContent = dict[str, bytes]  # {filename: bytes}
 BodyContent = str  # Email body text
-QueryName = str  # Query name identifier
 Filename = str  # Attachment filename
 
 
