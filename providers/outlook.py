@@ -105,10 +105,10 @@ class OutlookProvider:
             if query.body_filter is not None:
                 bodies = self.filter_body(filtered_emails, query.body_filter)
 
-            return ExtractionResult(emails=filtered_emails, attachments=attachments, bodies=bodies)
+            return ExtractionResult(name=query.name, emails=filtered_emails, attachments=attachments, bodies=bodies)
 
         except Exception as e:
-            return ExtractionResult(error=str(e))
+            return ExtractionResult(name=query.name, error=str(e))
 
     def filter_body(
         self,

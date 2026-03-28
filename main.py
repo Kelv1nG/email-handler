@@ -1,6 +1,7 @@
 """Main entry point for email extractor."""
 
 from datetime import datetime
+from pathlib import Path
 
 from providers import OutlookProvider
 from schemas.filter import AttachmentFilter, BodyFilter, DateFilter, FolderFilter, KeywordFilter, SearchQuery
@@ -40,6 +41,17 @@ def main():
     print(f"Emails found: {len(result.emails)}")
     print(f"Attachments: {list(result.attachments.keys())}")
     print(f"Bodies matched: {list(result.bodies.keys())}")
+
+    # Save attachments to disk using a path mapper
+    if result.attachments:
+        saved = result.save_attachments(
+            path_mapper=lambda email, filename: (
+                Path("C:/output/mediopac") / f"renamed_{email.received_time.strftime('%Y-%m-%d')}.xlsx"
+                if filename.endswith(".xlsx") else None
+            ),
+            on_collision="error",
+        )
+        print(f"Saved attachments: {saved}")
 
 
 if __name__ == "__main__":

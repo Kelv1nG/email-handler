@@ -2,6 +2,8 @@ from __future__ import annotations
 from datetime import datetime
 from pydantic import BaseModel, Field
 
+from schemas.result import QueryName
+
 
 class BaseFilter(BaseModel):
     """Base class for all search filters."""
@@ -46,7 +48,7 @@ class BodyFilter(BaseFilter):
 class SearchQuery(BaseModel):
     """Composable search query for filtering emails and extracting content."""
 
-    name: str = Field(description="Unique identifier for this query")
+    name: QueryName = Field(description="Unique identifier for this query")
     email_filters: list[FolderFilter | KeywordFilter | DateFilter] = Field(
         description="Filters for email search (folder, keywords, date range)"
     )
