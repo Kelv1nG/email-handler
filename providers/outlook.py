@@ -24,11 +24,19 @@ class OutlookProvider:
     Uses pywin32 (win32com) to interact with Microsoft Outlook COM objects.
     """
 
-    def __init__(self):
-        """Initialize Outlook provider with pywin32 COM dispatch."""
+    def __init__(self, temp_dir: str | None = None):
+        """Initialize Outlook provider with pywin32 COM dispatch.
+
+        Args:
+            temp_dir: Optional directory to use for temporary files when reading
+                attachment content. Useful when this module is used as a submodule
+                and the default system temp directory causes permission errors.
+                Defaults to the system temp directory.
+        """
         self.outlook = win32com.client.Dispatch("Outlook.Application")
         self.namespace = self.outlook.GetNamespace("MAPI")
         self._message_cache: dict[str, Any] = {}  # Cache for Outlook message objects
+        self._temp_dir = temp_dir
 
     # ============================================================================
     # Protocol Methods (EmailProvider Interface)
@@ -236,7 +244,7 @@ class OutlookProvider:
                 filename = attachment.FileName
 
                 # Save to temp file, read content, then delete temp file
-                with tempfile.TemporaryDirectory() as tmpdir:
+                with tempfile.TemporaryDirectory(dir=self._temp_dir) as tmpdir:
                     temp_path = Path(tmpdir) / filename
                     attachment.SaveAsFile(str(temp_path))
 
@@ -442,8 +450,7 @@ class OutlookProvider:
                         continue
 
                     # Save to temp file, read content, then delete temp file
-                    with tempfile.TemporaryDirectory() as tmpdir:
-                        temp_path = Path(tmpdir) / filename
+                with tempfile.TemporaryDirectory(dir=self._temp_dir) as tmpdir:
                         attachment.SaveAsFile(str(temp_path))
 
                         # Read content into memory
