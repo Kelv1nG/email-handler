@@ -1,5 +1,11 @@
 # Email HTML Table Extraction Design
 
+> **Superseded:** The source and persistence portions of this design are
+> replaced by
+> `docs/superpowers/specs/2026-09-23-email-table-sources-design.md`, which adds
+> standalone `.msg` reading, live-message `.msg` saving, and runnable examples.
+> The table selector, normalization, and result semantics are retained there.
+
 ## Summary
 
 Add an opt-in, backward-compatible API for extracting structured tables from the HTML body of Outlook emails. Existing email searching, plain-text body filtering, attachment extraction, Pydantic models, result serialization, and provider protocol remain unchanged.
