@@ -8,9 +8,19 @@ import tempfile
 
 import win32com.client
 
-from exceptions import AttachmentReadError, DuplicateQueryNamesError, EmailNotInCacheError, FolderNotFoundError, InvalidSavePathError
+from exceptions import (
+    AttachmentReadError,
+    DuplicateEmailKeysError,
+    DuplicateQueryNamesError,
+    EmailNotInCacheError,
+    FolderNotFoundError,
+    InvalidSavePathError,
+    TableExtractionError,
+)
+from extractors import extract_html_tables
 from schemas.filter import AttachmentFilter, BodyFilter, DateFilter, FolderFilter, KeywordFilter, SearchQuery
 from schemas.result import AttachmentContent, BodyContent, EmailKey, EmailRecord, ExtractionResult, Filename, QueryName, QueryResult
+from schemas.table import ExtractedTable, TableSelector
 from utils.dates import format_outlook_date
 
 # Outlook object model constants from pywin32
@@ -109,6 +119,46 @@ class OutlookProvider:
 
         except Exception as e:
             return ExtractionResult(name=query.name, error=str(e))
+
+    def extract_tables(
+        self,
+        email_records: list[EmailRecord],
+        selector: TableSelector | None = None,
+    ) -> dict[EmailKey, list[ExtractedTable]]:
+        """Extract selected tables from cached live Outlook messages."""
+        email_keys = [self._make_email_key(record) for record in email_records]
+        duplicates = {
+            key for key in email_keys if email_keys.count(key) > 1
+        }
+        if duplicates:
+            raise DuplicateEmailKeysError(
+                f"Duplicate email keys found: {sorted(duplicates)}"
+            )
+
+        result: dict[EmailKey, list[ExtractedTable]] = {}
+        for record, email_key in zip(email_records, email_keys, strict=True):
+            message = self._message_cache.get(self._get_cache_key(record))
+            if message is None:
+                raise EmailNotInCacheError(
+                    f"Email record for '{record.subject}' not found in cache. "
+                    "Make sure to call filter_emails() first."
+                )
+            try:
+                html_body = message.HTMLBody
+                if html_body is None or html_body == "":
+                    result[email_key] = []
+                    continue
+                if not isinstance(html_body, str):
+                    raise TypeError(
+                        "Outlook HTMLBody must be str, "
+                        f"got {type(html_body).__name__}"
+                    )
+                result[email_key] = extract_html_tables(html_body, selector)
+            except Exception as exc:
+                raise TableExtractionError(
+                    f"Failed to extract tables from '{record.subject}': {exc}"
+                ) from exc
+        return result
 
     def filter_body(
         self,
