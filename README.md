@@ -80,6 +80,9 @@ existing parent directory and refuses overwrites.
 The collision check occurs before Outlook `SaveAs`; callers with concurrent writers
 targeting one new path must coordinate those writers externally.
 
+To bound malformed or untrusted HTML, table expansion is limited to 10,000
+logical columns. A table exceeding that limit raises `TableExtractionError`.
+
 - `EmailNotInCacheError`: the record did not come from this provider instance.
 - `DuplicateEmailKeysError`: two requested live records map to the same result key.
 - `TableExtractionError`: live HTML access or parsing failed.

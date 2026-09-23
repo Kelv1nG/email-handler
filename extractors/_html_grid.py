@@ -3,6 +3,10 @@
 from dataclasses import dataclass
 
 from bs4 import BeautifulSoup, NavigableString, Tag
+from bs4.element import PreformattedString
+
+
+MAX_TABLE_COLUMNS = 10_000
 
 
 @dataclass(frozen=True)
@@ -33,6 +37,8 @@ def _text_without_nested_content(node: Tag, table: Tag) -> str:
     for descendant in node.descendants:
         if not isinstance(descendant, NavigableString):
             continue
+        if isinstance(descendant, PreformattedString):
+            continue
         if descendant.find_parent(["script", "style"]) is not None:
             continue
         if _nearest_table(descendant) is not table:
@@ -62,9 +68,24 @@ def _span(cell: Tag, name: str) -> int:
 
 
 def _next_free_run(occupied: dict[int, str], start: int, width: int) -> int:
-    while any(index in occupied for index in range(start, start + width)):
-        start += 1
-    return start
+    if width > MAX_TABLE_COLUMNS:
+        raise ValueError(
+            f"table exceeds the maximum of {MAX_TABLE_COLUMNS} logical columns"
+        )
+
+    while True:
+        end = start + width
+        if end > MAX_TABLE_COLUMNS:
+            raise ValueError(
+                f"table exceeds the maximum of {MAX_TABLE_COLUMNS} logical columns"
+            )
+        blocking_column = next(
+            (index for index in range(start, end) if index in occupied),
+            None,
+        )
+        if blocking_column is None:
+            return start
+        start = blocking_column + 1
 
 
 def _expand_rows(table: Tag, rows: list[Tag]) -> list[HtmlGridRow]:
@@ -113,7 +134,11 @@ def _expand_rows(table: Tag, rows: list[Tag]) -> list[HtmlGridRow]:
     return expanded
 
 
-def parse_html_grids(html: str | bytes) -> list[HtmlTableGrid]:
+def parse_html_grids(
+    html: str | bytes,
+    source_index: int | None = None,
+) -> list[HtmlTableGrid]:
+    """Normalize all tables, or one absolute table position, into grids."""
     if not isinstance(html, (str, bytes)):
         raise TypeError("html must be str or bytes")
     if not html:
@@ -121,7 +146,9 @@ def parse_html_grids(html: str | bytes) -> list[HtmlTableGrid]:
 
     soup = BeautifulSoup(html, "html.parser")
     grids: list[HtmlTableGrid] = []
-    for source_index, table in enumerate(soup.find_all("table")):
+    for table_index, table in enumerate(soup.find_all("table")):
+        if source_index is not None and table_index != source_index:
+            continue
         rows = _logical_rows(table)
         if not any(_direct_cells(row) for row in rows):
             continue
@@ -133,7 +160,7 @@ def parse_html_grids(html: str | bytes) -> list[HtmlTableGrid]:
         )
         grids.append(
             HtmlTableGrid(
-                source_index=source_index,
+                source_index=table_index,
                 caption=caption or None,
                 rows=tuple(_expand_rows(table, rows)),
             )

@@ -1,6 +1,11 @@
+from pathlib import Path
+import subprocess
+import sys
+
 import pytest
 
 from exceptions import TableExtractionError
+import extractors._html_grid as html_grid
 from extractors.html_tables import extract_html_tables
 from schemas.table import TableSelector
 
@@ -180,3 +185,71 @@ def test_occurrence_counts_only_matches_but_source_index_stays_absolute():
     )[0]
     assert table.source_index == 3
     assert table.rows == [["sibling"]]
+
+
+def test_comments_do_not_contaminate_caption_headers_or_data():
+    html = """
+    <table>
+      <caption>Balances<!-- internal note --></caption>
+      <tr><th>Account<!-- heading note --></th></tr>
+      <tr><td>A-1<!-- data note --></td></tr>
+    </table>
+    """
+
+    tables = extract_html_tables(
+        html,
+        TableSelector(required_columns=["Account"]),
+    )
+
+    assert len(tables) == 1
+    assert tables[0].caption == "Balances"
+    assert tables[0].columns == ["Account"]
+    assert tables[0].rows == [["A-1"]]
+
+
+def test_source_index_skips_unselected_tables_before_grid_expansion(monkeypatch):
+    original_expand_rows = html_grid._expand_rows
+
+    def reject_unselected_table(table, rows):
+        if table.get("id") == "unselected":
+            raise AssertionError("unselected table was expanded")
+        return original_expand_rows(table, rows)
+
+    monkeypatch.setattr(html_grid, "_expand_rows", reject_unselected_table)
+    html = (
+        '<table id="selected"><tr><th>A</th></tr><tr><td>1</td></tr></table>'
+        '<table id="unselected"><tr><th>B</th></tr></table>'
+    )
+
+    tables = extract_html_tables(html, TableSelector(source_index=0))
+
+    assert [table.source_index for table in tables] == [0]
+    assert tables[0].rows == [["1"]]
+
+
+def test_oversized_colspan_fails_fast_with_chained_error():
+    repository_root = Path(__file__).parents[2]
+    script = """
+from exceptions import TableExtractionError
+from extractors import extract_html_tables
+
+html = '<table><tr><th colspan="10001">A</th></tr></table>'
+try:
+    extract_html_tables(html)
+except TableExtractionError as exc:
+    assert isinstance(exc.__cause__, ValueError)
+    assert "logical columns" in str(exc)
+else:
+    raise AssertionError("oversized colspan was accepted")
+"""
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=repository_root,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=3,
+    )
+
+    assert result.returncode == 0, result.stderr

@@ -81,13 +81,11 @@ def extract_html_tables(
         raise TypeError("html must be str or bytes")
     selected = selector or TableSelector()
     try:
-        grids = parse_html_grids(html)
-        if selected.source_index is not None:
-            grids = [
-                grid
-                for grid in grids
-                if grid.source_index == selected.source_index
-            ]
+        grids = (
+            parse_html_grids(html)
+            if selected.source_index is None
+            else parse_html_grids(html, source_index=selected.source_index)
+        )
 
         tables = [
             table
