@@ -23,3 +23,19 @@ class EmailNotInCacheError(LookupError):
 
 class AttachmentReadError(IOError):
     """Raised when an attachment cannot be read from an Outlook message."""
+
+
+class DuplicateEmailKeysError(ValueError):
+    """Raised when input records would overwrite the same result key."""
+
+
+class TableExtractionError(RuntimeError):
+    """Raised when HTML access or table parsing fails unexpectedly."""
+
+
+class MessageFileReadError(IOError):
+    """Raised when a saved MSG file cannot be decoded or parsed."""
+
+
+class MessageSaveError(IOError):
+    """Raised when Outlook cannot save a cached message as MSG."""

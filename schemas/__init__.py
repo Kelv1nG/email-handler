@@ -2,6 +2,7 @@
 
 from .filter import BaseFilter, FolderFilter, KeywordFilter, DateFilter, SearchQuery
 from .result import EmailRecord, QueryResult
+from .table import ExtractedTable, TableSelector
 
 __all__ = [
     "EmailRecord",
@@ -11,4 +12,6 @@ __all__ = [
     "DateFilter",
     "SearchQuery",
     "QueryResult",
+    "ExtractedTable",
+    "TableSelector",
 ]
