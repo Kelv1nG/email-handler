@@ -12,6 +12,20 @@ def test_selector_defaults_select_all_tables():
     assert selector.header_row == "auto"
 
 
+def test_selector_schema_documents_each_parameter():
+    properties = TableSelector.model_json_schema()["properties"]
+    required_fragments = {
+        "source_index": ("zero-based", "DOM order"),
+        "required_columns": ("case-insensitively", "whitespace"),
+        "occurrence": ("zero-based", "column filtering"),
+        "header_row": ("zero-based", '"auto"'),
+    }
+
+    for field_name, fragments in required_fragments.items():
+        description = properties[field_name].get("description", "").casefold()
+        assert all(fragment.casefold() in description for fragment in fragments)
+
+
 def test_selector_strips_columns_and_rejects_normalized_duplicates():
     assert TableSelector(required_columns=[" Account "]).required_columns == [
         "Account"

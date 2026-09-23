@@ -10,12 +10,52 @@ def _comparison_name(value: str) -> str:
 
 
 class TableSelector(BaseModel):
-    """Select tables by absolute position, columns, or filtered occurrence."""
+    """Select HTML tables by position, columns, and header interpretation.
 
-    source_index: int | None = Field(default=None, ge=0)
-    required_columns: list[str] = Field(default_factory=list)
-    occurrence: int | None = Field(default=None, ge=0)
-    header_row: int | Literal["auto"] = "auto"
+    ``source_index`` selects from every HTML table before column filtering,
+    while ``occurrence`` selects from the tables left after column filtering.
+    The two position spaces are mutually exclusive. Omitting both returns all
+    tables that satisfy ``required_columns``.
+
+    Args:
+        source_index: Absolute zero-based table position in HTML DOM order.
+            Empty or non-data tables still occupy a position. Cannot be used
+            together with ``occurrence``.
+        required_columns: Column names that every returned table must contain.
+            Names are matched case-insensitively after whitespace normalization.
+            An empty list accepts any set of columns.
+        occurrence: Zero-based position among tables remaining after column
+            filtering. Cannot be used together with ``source_index``.
+        header_row: Zero-based logical row to use as the column header, or
+            ``"auto"`` to infer it from ``thead``, header cells, or the first
+            non-empty row.
+    """
+
+    source_index: int | None = Field(
+        default=None,
+        ge=0,
+        description="Absolute zero-based table position in HTML DOM order.",
+    )
+    required_columns: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Column names matched case-insensitively after whitespace "
+            "normalization."
+        ),
+    )
+    occurrence: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Zero-based position among matching tables after column filtering."
+        ),
+    )
+    header_row: int | Literal["auto"] = Field(
+        default="auto",
+        description=(
+            'Zero-based logical header row, or "auto" for automatic inference.'
+        ),
+    )
 
     @field_validator("required_columns")
     @classmethod
