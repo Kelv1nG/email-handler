@@ -15,6 +15,7 @@ from exceptions import (
     EmailNotInCacheError,
     FolderNotFoundError,
     InvalidSavePathError,
+    MessageSaveError,
     TableExtractionError,
 )
 from extractors import extract_html_tables
@@ -26,6 +27,7 @@ from utils.dates import format_outlook_date
 # Outlook object model constants from pywin32
 # Reference: https://docs.microsoft.com/en-us/office/client-developer/outlook/pia/
 OL_MAIL_CLASS = 43  # olMail - represents a mail message item
+OL_MSG_UNICODE = 9  # olMSGUnicode - Outlook Unicode message format
 
 
 class OutlookProvider:
@@ -261,6 +263,41 @@ class OutlookProvider:
                 results[record.subject] = saved_files
 
         return results
+
+    def save_message(
+        self,
+        email_record: EmailRecord,
+        save_path: str | Path,
+    ) -> Path:
+        """Save one cached live Outlook message as a Unicode MSG file."""
+        destination = Path(save_path)
+        if destination.suffix.casefold() != ".msg":
+            raise InvalidSavePathError(
+                f"Save path '{destination}' must have a .msg suffix."
+            )
+        if not destination.parent.exists() or not destination.parent.is_dir():
+            raise InvalidSavePathError(
+                f"Save directory '{destination.parent}' does not exist "
+                "or is not a directory."
+            )
+        if destination.exists():
+            raise FileExistsError(destination)
+
+        message = self._message_cache.get(self._get_cache_key(email_record))
+        if message is None:
+            raise EmailNotInCacheError(
+                f"Email record for '{email_record.subject}' not found in cache. "
+                "Make sure to call filter_emails() first."
+            )
+
+        try:
+            message.SaveAs(str(destination), OL_MSG_UNICODE)
+        except Exception as exc:
+            raise MessageSaveError(
+                f"Failed to save '{email_record.subject}' "
+                f"to '{destination}': {exc}"
+            ) from exc
+        return destination
 
     def get_attachment_content(
         self,
