@@ -28,8 +28,21 @@ the zero-based position after column filtering. They cannot be supplied together
 Saving refuses a destination that already exists at preflight. Concurrent writers
 targeting the same new path must coordinate externally.
 
-Results are Pydantic models. If your application already uses pandas, convert
-at the boundary you control (pandas is intentionally not a project dependency):
+Results are Pydantic models. Install the optional Polars integration and use the
+public conversion helper when you want a Polars DataFrame:
+
+```text
+python -m pip install "email-extractor[polars]"
+```
+
+```python
+from email_handler.extractors import extracted_table_to_dataframe
+
+frame = extracted_table_to_dataframe(table)
+```
+
+If your application already uses pandas, you can instead convert at the
+boundary you control (pandas is intentionally not a project dependency):
 
 ```python
 import pandas

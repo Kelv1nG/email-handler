@@ -84,9 +84,26 @@ tables = extract_tables_from_msg(saved_path, selector)
 
 Both extraction paths return the same `ExtractedTable` Pydantic model.
 
-## Pydantic first, pandas optional
+## Pydantic first, DataFrames optional
 
-The library does not require pandas. A caller that already has pandas may opt in:
+Install the optional Polars integration when you want a DataFrame directly:
+
+```text
+python -m pip install "email-extractor[polars]"
+```
+
+```python
+from email_handler.extractors import extracted_table_to_dataframe
+
+frame = extracted_table_to_dataframe(tables[0])
+```
+
+The conversion preserves source column order and null cells. Duplicate column
+names are made unique with numeric suffixes, so `colA, colA, colB, colB`
+becomes `colA, colA_2, colB, colB_2`.
+
+The library does not require pandas. A caller that already has pandas can also
+convert at its own boundary:
 
 ```python
 import pandas as pd
