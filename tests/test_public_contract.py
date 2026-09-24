@@ -1,6 +1,10 @@
 import inspect
 
-from email_handler.extractors import extract_html_tables, extract_tables_from_msg
+from email_handler.extractors import (
+    extract_html_tables,
+    extract_tables_from_msg,
+    extracted_table_to_dataframe,
+)
 from email_handler.protocols import MessageSavingEmailProvider, TableExtractingEmailProvider
 from email_handler.protocols.provider import EmailProvider
 from email_handler.providers.outlook import OutlookProvider
@@ -25,5 +29,6 @@ def test_new_capability_signatures_match_outlook_provider():
 def test_new_public_exports_are_importable():
     assert callable(extract_html_tables)
     assert callable(extract_tables_from_msg)
+    assert callable(extracted_table_to_dataframe)
     assert TableSelector.__name__ == "TableSelector"
     assert ExtractedTable.__name__ == "ExtractedTable"

@@ -1,12 +1,17 @@
+import builtins
 from pathlib import Path
 import subprocess
 import sys
+from typing import Any, get_type_hints
 
 import pytest
 
 from email_handler.exceptions import MessageFileReadError
-from email_handler.extractors.msg_tables import extract_tables_from_msg
-from email_handler.schemas.table import TableSelector
+from email_handler.extractors.msg_tables import (
+    extract_tables_from_msg,
+    extracted_table_to_dataframe,
+)
+from email_handler.schemas.table import ExtractedTable, TableSelector
 
 
 class FakeMessage:
@@ -29,6 +34,72 @@ class FakeMessage:
 
     def close(self):
         self.closed = True
+
+
+def test_extracted_table_to_dataframe_preserves_values_and_nulls():
+    table = ExtractedTable(
+        source_index=0,
+        columns=["Account", "Amount"],
+        rows=[["A-100", "125.50"], ["A-200", None]],
+    )
+
+    frame = extracted_table_to_dataframe(table)
+
+    assert frame.columns == ["Account", "Amount"]
+    assert frame.rows() == [("A-100", "125.50"), ("A-200", None)]
+
+
+def test_extracted_table_to_dataframe_makes_duplicate_names_collision_safe():
+    table = ExtractedTable(
+        source_index=0,
+        columns=["colA", "colA", "colA_2", "colB", "colB"],
+        rows=[["1", "2", "3", "4", "5"]],
+    )
+
+    frame = extracted_table_to_dataframe(table)
+
+    assert frame.columns == ["colA", "colA_3", "colA_2", "colB", "colB_2"]
+    assert frame.rows() == [("1", "2", "3", "4", "5")]
+
+
+def test_extracted_table_to_dataframe_explains_how_to_install_polars(monkeypatch):
+    real_import = builtins.__import__
+
+    def import_without_polars(name, *args, **kwargs):
+        if name == "polars":
+            raise ModuleNotFoundError("No module named 'polars'", name="polars")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", import_without_polars)
+    table = ExtractedTable(source_index=0, columns=["A"], rows=[["1"]])
+
+    with pytest.raises(
+        ModuleNotFoundError, match=r"email-extractor\[polars\]"
+    ) as raised:
+        extracted_table_to_dataframe(table)
+
+    assert isinstance(raised.value.__cause__, ModuleNotFoundError)
+
+
+def test_extracted_table_to_dataframe_keeps_empty_columns_as_strings():
+    table = ExtractedTable(
+        source_index=0,
+        columns=["Account", "Amount"],
+        rows=[],
+    )
+
+    frame = extracted_table_to_dataframe(table)
+
+    assert frame.shape == (0, 2)
+    assert frame.columns == ["Account", "Amount"]
+    assert [str(data_type) for data_type in frame.dtypes] == ["String", "String"]
+
+
+def test_extracted_table_to_dataframe_runtime_annotations_resolve():
+    assert get_type_hints(extracted_table_to_dataframe) == {
+        "table": ExtractedTable,
+        "return": Any,
+    }
 
 
 def test_passes_html_bytes_to_shared_parser(tmp_path, monkeypatch):
@@ -163,6 +234,24 @@ def test_msg_reader_import_does_not_import_outlook_dependencies():
         "assert 'win32com' not in sys.modules; "
         "assert 'email_handler.providers.outlook' not in sys.modules"
     )
+    subprocess.run([sys.executable, "-c", code], check=True)
+
+
+def test_public_dataframe_converter_import_does_not_require_polars():
+    code = """
+import builtins
+
+real_import = builtins.__import__
+
+def import_without_polars(name, *args, **kwargs):
+    if name == 'polars':
+        raise ModuleNotFoundError("No module named 'polars'", name='polars')
+    return real_import(name, *args, **kwargs)
+
+builtins.__import__ = import_without_polars
+from email_handler.extractors import extracted_table_to_dataframe
+assert callable(extracted_table_to_dataframe)
+"""
     subprocess.run([sys.executable, "-c", code], check=True)
 
 
