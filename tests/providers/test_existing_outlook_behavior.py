@@ -1,15 +1,15 @@
 from datetime import datetime
 from pathlib import Path
 
-from providers.outlook import OutlookProvider
-from schemas.filter import (
+from email_handler.providers.outlook import OutlookProvider
+from email_handler.schemas.filter import (
     AttachmentFilter,
     BodyFilter,
     FolderFilter,
     KeywordFilter,
     SearchQuery,
 )
-from schemas.result import EmailRecord
+from email_handler.schemas.result import EmailRecord
 
 
 def record(subject, body="", attachments=None):

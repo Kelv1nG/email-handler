@@ -1,6 +1,6 @@
 import pytest
 
-from extractors._html_grid import parse_html_grids
+from email_handler.extractors._html_grid import parse_html_grids
 
 
 def test_parses_non_utf8_bytes_using_declared_charset():

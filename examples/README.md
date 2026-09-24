@@ -1,5 +1,10 @@
 # Examples
 
+Run these modules from the repository root after installing the project.
+Reusable application code lives in the `email_handler` package; for example,
+`from email_handler.schemas import TableSelector` and
+`from email_handler.extractors import extract_tables_from_msg`.
+
 The saved-MSG example does not require Outlook. Live extraction and saving
 require Windows desktop Outlook because they use the current pywin32 adapter.
 

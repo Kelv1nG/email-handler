@@ -1,10 +1,10 @@
 import inspect
 
-from extractors import extract_html_tables, extract_tables_from_msg
-from protocols import MessageSavingEmailProvider, TableExtractingEmailProvider
-from protocols.provider import EmailProvider
-from providers.outlook import OutlookProvider
-from schemas import ExtractedTable, TableSelector
+from email_handler.extractors import extract_html_tables, extract_tables_from_msg
+from email_handler.protocols import MessageSavingEmailProvider, TableExtractingEmailProvider
+from email_handler.protocols.provider import EmailProvider
+from email_handler.providers.outlook import OutlookProvider
+from email_handler.schemas import ExtractedTable, TableSelector
 
 
 def test_original_provider_protocol_has_no_new_capabilities():

@@ -14,6 +14,21 @@ structure.
 
     uv sync --group dev
 
+To use this repository from another project, install its distribution
+(`email-extractor`) from a wheel or local checkout, for example:
+
+    python -m pip install /path/to/email-handler
+
+Python imports use the `email_handler` package:
+
+```python
+from email_handler.schemas import TableSelector
+from email_handler.extractors import extract_tables_from_msg
+```
+
+This package layout changes the import paths: old top-level imports such as
+`from schemas import TableSelector` are no longer provided.
+
 Saved-MSG reading is Outlook-independent. Live Outlook access and saving use
 the Windows pywin32 adapter.
 
@@ -22,12 +37,16 @@ the Windows pywin32 adapter.
 Positions are zero-based. `source_index` addresses every table in DOM order:
 
 ```python
+from email_handler.schemas import TableSelector
+
 TableSelector(source_index=1)
 ```
 
 `occurrence` addresses matching tables after required-column filtering:
 
 ```python
+from email_handler.schemas import TableSelector
+
 TableSelector(
     required_columns=["Account", "Amount"],
     occurrence=0,
@@ -41,6 +60,9 @@ Omit `occurrence` to return all tables containing the required columns.
 Live Outlook records must first be cached by `filter_emails`:
 
 ```python
+from email_handler.providers import OutlookProvider
+
+provider = OutlookProvider()
 records = provider.filter_emails([query])[query.name].records
 tables_by_email = provider.extract_tables(records, selector)
 ```
@@ -48,6 +70,8 @@ tables_by_email = provider.extract_tables(records, selector)
 Saved MSG files do not require Outlook:
 
 ```python
+from email_handler.extractors import extract_tables_from_msg
+
 tables = extract_tables_from_msg("path/to/report.msg", selector)
 ```
 

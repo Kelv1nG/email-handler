@@ -1,7 +1,7 @@
 from datetime import datetime
 
-from schemas.filter import SearchQuery
-from schemas.result import EmailRecord, ExtractionResult, QueryResult
+from email_handler.schemas.filter import SearchQuery
+from email_handler.schemas.result import EmailRecord, ExtractionResult, QueryResult
 
 
 def test_existing_pydantic_field_sets_are_unchanged():

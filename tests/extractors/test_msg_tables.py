@@ -4,9 +4,9 @@ import sys
 
 import pytest
 
-from exceptions import MessageFileReadError
-from extractors.msg_tables import extract_tables_from_msg
-from schemas.table import TableSelector
+from email_handler.exceptions import MessageFileReadError
+from email_handler.extractors.msg_tables import extract_tables_from_msg
+from email_handler.schemas.table import TableSelector
 
 
 class FakeMessage:
@@ -38,7 +38,7 @@ def test_passes_html_bytes_to_shared_parser(tmp_path, monkeypatch):
         b"<table><tr><th>A</th></tr><tr><td>1</td></tr></table>"
     )
     monkeypatch.setattr(
-        "extractors.msg_tables.extract_msg.openMsg", lambda _path: message
+        "email_handler.extractors.msg_tables.extract_msg.openMsg", lambda _path: message
     )
 
     tables = extract_tables_from_msg(
@@ -58,7 +58,7 @@ def test_delegates_the_exact_msg_html_bytes_and_selector(tmp_path, monkeypatch):
     message = FakeMessage(html_body)
     selector = TableSelector(source_index=0)
     monkeypatch.setattr(
-        "extractors.msg_tables.extract_msg.openMsg",
+        "email_handler.extractors.msg_tables.extract_msg.openMsg",
         lambda _path: message,
     )
 
@@ -67,7 +67,7 @@ def test_delegates_the_exact_msg_html_bytes_and_selector(tmp_path, monkeypatch):
         assert received_selector is selector
         return []
 
-    monkeypatch.setattr("extractors.msg_tables.extract_html_tables", capture)
+    monkeypatch.setattr("email_handler.extractors.msg_tables.extract_html_tables", capture)
     assert extract_tables_from_msg(path, selector) == []
     assert message.closed is True
 
@@ -76,7 +76,7 @@ def test_empty_msg_html_is_successful_empty_result(tmp_path, monkeypatch):
     path = tmp_path / "empty.msg"
     path.write_bytes(b"placeholder")
     monkeypatch.setattr(
-        "extractors.msg_tables.extract_msg.openMsg",
+        "email_handler.extractors.msg_tables.extract_msg.openMsg",
         lambda _path: FakeMessage(None),
     )
     assert extract_tables_from_msg(path) == []
@@ -104,7 +104,7 @@ def test_unexpected_path_access_failure_is_chained(tmp_path, monkeypatch):
     def fail(_path):
         raise PermissionError("access denied")
 
-    monkeypatch.setattr("extractors.msg_tables._validated_msg_path", fail)
+    monkeypatch.setattr("email_handler.extractors.msg_tables._validated_msg_path", fail)
     with pytest.raises(MessageFileReadError, match="permission.msg") as raised:
         extract_tables_from_msg(path)
     assert isinstance(raised.value.__cause__, PermissionError)
@@ -117,7 +117,7 @@ def test_corrupt_msg_error_is_chained(tmp_path, monkeypatch):
     def fail(_path):
         raise RuntimeError("bad compound file")
 
-    monkeypatch.setattr("extractors.msg_tables.extract_msg.openMsg", fail)
+    monkeypatch.setattr("email_handler.extractors.msg_tables.extract_msg.openMsg", fail)
     with pytest.raises(MessageFileReadError, match="bad.msg") as raised:
         extract_tables_from_msg(path)
     assert isinstance(raised.value.__cause__, RuntimeError)
@@ -128,7 +128,7 @@ def test_html_body_failure_closes_message_and_is_chained(tmp_path, monkeypatch):
     path.write_bytes(b"placeholder")
     message = FakeMessage(body_failure=RuntimeError("body unavailable"))
     monkeypatch.setattr(
-        "extractors.msg_tables.extract_msg.openMsg", lambda _path: message
+        "email_handler.extractors.msg_tables.extract_msg.openMsg", lambda _path: message
     )
 
     with pytest.raises(MessageFileReadError, match="broken-body.msg") as raised:
@@ -143,13 +143,13 @@ def test_parser_failure_closes_message_and_is_chained(tmp_path, monkeypatch):
     path.write_bytes(b"placeholder")
     message = FakeMessage(b"<table></table>")
     monkeypatch.setattr(
-        "extractors.msg_tables.extract_msg.openMsg", lambda _path: message
+        "email_handler.extractors.msg_tables.extract_msg.openMsg", lambda _path: message
     )
 
     def fail(_html, _selector):
         raise RuntimeError("parser exploded")
 
-    monkeypatch.setattr("extractors.msg_tables.extract_html_tables", fail)
+    monkeypatch.setattr("email_handler.extractors.msg_tables.extract_html_tables", fail)
     with pytest.raises(MessageFileReadError, match="parser-failure.msg") as raised:
         extract_tables_from_msg(path)
 
@@ -159,9 +159,9 @@ def test_parser_failure_closes_message_and_is_chained(tmp_path, monkeypatch):
 
 def test_msg_reader_import_does_not_import_outlook_dependencies():
     code = (
-        "import sys; import extractors.msg_tables; "
+        "import sys; import email_handler.extractors.msg_tables; "
         "assert 'win32com' not in sys.modules; "
-        "assert 'providers.outlook' not in sys.modules"
+        "assert 'email_handler.providers.outlook' not in sys.modules"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
 

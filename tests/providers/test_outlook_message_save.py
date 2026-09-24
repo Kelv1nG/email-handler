@@ -2,13 +2,13 @@ from datetime import datetime
 
 import pytest
 
-from exceptions import (
+from email_handler.exceptions import (
     EmailNotInCacheError,
     InvalidSavePathError,
     MessageSaveError,
 )
-from providers.outlook import OutlookProvider
-from schemas.result import EmailRecord
+from email_handler.providers.outlook import OutlookProvider
+from email_handler.schemas.result import EmailRecord
 
 
 class FakeMessage:

@@ -1,6 +1,6 @@
 """Small, dependency-free helpers shared by the runnable examples."""
 
-from schemas.table import ExtractedTable
+from email_handler.schemas.table import ExtractedTable
 
 
 def print_tables(tables: list[ExtractedTable]) -> None:

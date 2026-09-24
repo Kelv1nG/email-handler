@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from schemas.table import ExtractedTable, TableSelector
+from email_handler.schemas.table import ExtractedTable, TableSelector
 
 
 def test_selector_defaults_select_all_tables():

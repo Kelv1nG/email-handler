@@ -3,8 +3,8 @@
 from argparse import ArgumentParser
 from pathlib import Path
 
-from extractors import extract_tables_from_msg
-from schemas import FolderFilter, KeywordFilter, SearchQuery, TableSelector
+from email_handler.extractors import extract_tables_from_msg
+from email_handler.schemas import FolderFilter, KeywordFilter, SearchQuery, TableSelector
 
 from ._display import print_tables
 
@@ -23,7 +23,7 @@ def main() -> None:
     args = parser.parse_args()
 
     # Saving requires the current Windows Outlook adapter.
-    from providers import OutlookProvider
+    from email_handler.providers import OutlookProvider
 
     provider = OutlookProvider()
     query = SearchQuery(

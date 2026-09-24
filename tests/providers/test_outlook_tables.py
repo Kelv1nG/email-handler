@@ -2,14 +2,14 @@ from datetime import datetime
 
 import pytest
 
-from exceptions import (
+from email_handler.exceptions import (
     DuplicateEmailKeysError,
     EmailNotInCacheError,
     TableExtractionError,
 )
-from providers.outlook import OutlookProvider
-from schemas.result import EmailRecord
-from schemas.table import TableSelector
+from email_handler.providers.outlook import OutlookProvider
+from email_handler.schemas.result import EmailRecord
+from email_handler.schemas.table import TableSelector
 
 
 def record(sender="sender@example.com", subject="Report", minute=0):
@@ -111,7 +111,7 @@ def test_shared_parser_failure_gets_email_context_and_is_chained(monkeypatch):
     def fail(_html, _selector):
         raise parser_error
 
-    monkeypatch.setattr("providers.outlook.extract_html_tables", fail)
+    monkeypatch.setattr("email_handler.providers.outlook.extract_html_tables", fail)
     with pytest.raises(TableExtractionError, match="Report") as raised:
         provider.extract_tables([item])
 

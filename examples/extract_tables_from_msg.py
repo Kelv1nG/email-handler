@@ -3,8 +3,8 @@
 from argparse import ArgumentParser
 from pathlib import Path
 
-from extractors import extract_tables_from_msg
-from schemas import TableSelector
+from email_handler.extractors import extract_tables_from_msg
+from email_handler.schemas import TableSelector
 
 from ._display import print_tables
 

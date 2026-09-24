@@ -2,7 +2,7 @@
 
 from argparse import ArgumentParser
 
-from schemas import FolderFilter, KeywordFilter, SearchQuery, TableSelector
+from email_handler.schemas import FolderFilter, KeywordFilter, SearchQuery, TableSelector
 
 from ._display import print_tables
 
@@ -18,7 +18,7 @@ def main() -> None:
     args = parser.parse_args()
 
     # Importing inside main keeps a simple module import from launching Outlook.
-    from providers import OutlookProvider
+    from email_handler.providers import OutlookProvider
 
     provider = OutlookProvider()
     query = SearchQuery(

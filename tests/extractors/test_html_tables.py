@@ -4,10 +4,10 @@ import sys
 
 import pytest
 
-from exceptions import TableExtractionError
-import extractors._html_grid as html_grid
-from extractors.html_tables import extract_html_tables
-from schemas.table import TableSelector
+from email_handler.exceptions import TableExtractionError
+import email_handler.extractors._html_grid as html_grid
+from email_handler.extractors.html_tables import extract_html_tables
+from email_handler.schemas.table import TableSelector
 
 
 HTML = """
@@ -118,7 +118,7 @@ def test_unexpected_grid_failure_is_chained(monkeypatch):
     def fail(_html):
         raise RuntimeError("parser exploded")
 
-    monkeypatch.setattr("extractors.html_tables.parse_html_grids", fail)
+    monkeypatch.setattr("email_handler.extractors.html_tables.parse_html_grids", fail)
     with pytest.raises(TableExtractionError, match="parser exploded") as raised:
         extract_html_tables("<table></table>")
     assert isinstance(raised.value.__cause__, RuntimeError)
@@ -230,8 +230,8 @@ def test_source_index_skips_unselected_tables_before_grid_expansion(monkeypatch)
 def test_oversized_colspan_fails_fast_with_chained_error():
     repository_root = Path(__file__).parents[2]
     script = """
-from exceptions import TableExtractionError
-from extractors import extract_html_tables
+from email_handler.exceptions import TableExtractionError
+from email_handler.extractors import extract_html_tables
 
 html = '<table><tr><th colspan="10001">A</th></tr></table>'
 try:
