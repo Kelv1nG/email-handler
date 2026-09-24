@@ -1,7 +1,7 @@
 [project]
 name = "email-extractor"
 version = "0.1.0"
-description = "Add your description here"
+description = "Email filtering and HTML table extraction from Outlook and MSG files"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -15,3 +15,11 @@ dependencies = [
 dev = [
     "pytest>=8.0,<9",
 ]
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["email_handler*"]
