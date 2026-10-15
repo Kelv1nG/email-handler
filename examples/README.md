@@ -22,6 +22,9 @@ require Windows desktop Outlook because they use the current pywin32 adapter.
 
 If more than one message has that exact subject, save-and-replay uses the newest
 match returned by Outlook.
+Subject searches ignore leading `RE:` and `FW:` prefixes in both messages and
+search text. You can use the base subject in these commands, even for replies
+and forwards. Exact subject matching is case-insensitive.
 
 `source_index` is the absolute zero-based HTML table position. `occurrence` is
 the zero-based position after column filtering. They cannot be supplied together.
