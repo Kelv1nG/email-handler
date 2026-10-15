@@ -81,11 +81,10 @@ class OutlookProvider:
 
         for folder_name, queries_in_folder in folder_groups.items():
             merged_date_from, merged_date_to = self._merge_date_ranges(queries_in_folder)
-            merged_keywords, all_exact_match = self._merge_keywords(queries_in_folder)
 
-            # Single Outlook search with merged keywords + date range (server-side filtering)
+            # Restrict by date in Outlook; compare full subjects per query below.
             folder_emails = self._search_folder(
-                folder_name, merged_keywords, all_exact_match, merged_date_from, merged_date_to
+                folder_name, queries_in_folder, merged_date_from, merged_date_to
             )
 
             # Post-filter each email against each query's specific keyword settings
@@ -378,24 +377,6 @@ class OutlookProvider:
         ]
         return (min(date_froms) if date_froms else None, max(date_tos) if date_tos else None)
 
-    def _merge_keywords(
-        self, queries: list[SearchQuery]
-    ) -> tuple[list[str], bool]:
-        """Collect keywords and determine if all are exact match.
-
-        Returns:
-            Tuple of (keywords list, whether all queries use exact_match).
-        """
-        keywords = set()
-        all_exact_match = True
-        for q in queries:
-            for f in q.email_filters:
-                if isinstance(f, KeywordFilter):
-                    keywords.update(f.keywords)
-                    if not f.exact_match:
-                        all_exact_match = False
-        return list(keywords), all_exact_match
-
     def _apply_query_filters(
         self, emails: list[EmailRecord], query: SearchQuery
     ) -> list[EmailRecord]:
@@ -578,19 +559,17 @@ class OutlookProvider:
     def _search_folder(
         self,
         folder_name: str,
-        keywords: list[str] | None,
-        exact_match: bool,
+        queries: list[SearchQuery],
         date_from: datetime | None,
         date_to: datetime | None,
     ) -> list[EmailRecord]:
-        """Fetch mail items from a folder with server-side filtering.
+        """Fetch mail items from a folder, restricting dates in Outlook.
 
-        Keywords and date range are applied by Outlook before fetching results.
+        Candidate subjects are checked before reading bodies and attachments.
 
         Args:
             folder_name: Outlook folder to search.
-            keywords: Keywords to search for in subject (OR logic). None for no keyword filter.
-            exact_match: If True, match full subject exactly. If False, substring match.
+            queries: Queries sharing this folder, used to select candidate subjects.
             date_from: Lower bound for ReceivedTime (inclusive). None for no bound.
             date_to: Upper bound for ReceivedTime (inclusive). None for no bound.
 
@@ -601,26 +580,30 @@ class OutlookProvider:
         messages = folder.Items
         messages.Sort("[ReceivedTime]", True)
 
-        # Build server-side restriction: date range always works;
-        # keyword exact match uses [Subject] = "..." (also valid server-side);
-        # substring keyword search is not supported by Restrict() and must be client-side.
-        restrictions = []
-        if exact_match and keywords:
-            restrictions.append(self._build_keyword_restriction(keywords))
+        # Outlook's Subject restriction ignores prefixes such as RE: and FW:.
+        # Date restriction is safe; compare the full subject after fetching.
         if date_from is not None or date_to is not None:
-            restrictions.append(self._build_date_restriction(date_from, date_to))
+            date_restriction = self._build_date_restriction(date_from, date_to)
+            print(f"Outlook restriction: {date_restriction}")
+            messages = messages.Restrict(date_restriction)
 
-        if restrictions:
-            combined = " AND ".join(restrictions)
-            print(f"Outlook restriction: {combined}")
-            messages = messages.Restrict(combined)
-
+        keyword_filters = [
+            next((f for f in query.email_filters if isinstance(f, KeywordFilter)), None)
+            for query in queries
+        ]
         results: list[EmailRecord] = []
         for message in messages:
             if not self._is_mail_item(message):
                 continue
 
             subject: str = message.Subject or ""
+            if not any(
+                filter_obj is None
+                or self._matches_keywords(subject, filter_obj.keywords, filter_obj.exact_match)
+                for filter_obj in keyword_filters
+            ):
+                continue
+
             attachments = self._extract_attachments(message)
 
             email_record = EmailRecord(
@@ -637,26 +620,6 @@ class OutlookProvider:
             results.append(email_record)
 
         return results
-
-    def _build_keyword_restriction(self, keywords: list[str]) -> str:
-        """Build Outlook restriction string for exact subject match (OR logic).
-
-        Note: Outlook's Restrict() does not support substring/contains matching.
-        This method is only valid for exact_match=True queries.
-        Substring matching must be done client-side in _apply_query_filters.
-
-        Args:
-            keywords: List of keywords for exact subject match.
-
-        Returns:
-            Outlook restriction string matching any keyword exactly.
-        """
-        if not keywords:
-            return ""
-        # Escape double quotes by doubling them
-        escaped = [kw.replace('"', '""') for kw in keywords]
-        conditions = [f'[Subject] = "{kw}"' for kw in escaped]
-        return " OR ".join(conditions)
 
     def _build_date_restriction(
         self, date_from: datetime | None, date_to: datetime | None

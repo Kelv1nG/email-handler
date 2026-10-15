@@ -1,5 +1,6 @@
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 from email_handler.providers.outlook import OutlookProvider
 from email_handler.schemas.filter import (
@@ -41,6 +42,57 @@ def test_filter_emails_keeps_existing_subject_filtering(monkeypatch):
     )
 
     assert provider.filter_emails([query])["reports"].records == [quarterly]
+
+
+def test_exact_subject_matches_full_reply_subject(monkeypatch):
+    class OutlookItems:
+        def __init__(self, messages):
+            self.messages = messages
+
+        def Sort(self, *_args):
+            pass
+
+        def Restrict(self, restriction):
+            # Outlook's Subject restriction ignores RE:/FW: prefixes.
+            if '[Subject] = "RE: Quarterly Report"' in restriction:
+                return []
+            return self.messages
+
+        def __iter__(self):
+            return iter(self.messages)
+
+    def message(subject, sender_email="sender@example.com"):
+        return SimpleNamespace(
+            Class=43,
+            Subject=subject,
+            SenderName="Sender",
+            SenderEmailAddress=sender_email,
+            ReceivedTime=datetime(2026, 9, 23, 10, 0),
+            Body="",
+            Attachments=SimpleNamespace(Count=0),
+        )
+
+    provider = object.__new__(OutlookProvider)
+    provider._message_cache = {}
+    items = OutlookItems(
+        [
+            message("Team Lunch", sender_email=""),
+            message("Quarterly Report"),
+            message("RE: Quarterly Report"),
+        ]
+    )
+    monkeypatch.setattr(provider, "_get_folder", lambda _name: SimpleNamespace(Items=items))
+    query = SearchQuery(
+        name="reply",
+        email_filters=[
+            FolderFilter(folder_name="Inbox"),
+            KeywordFilter(keywords=["RE: Quarterly Report"], exact_match=True),
+        ],
+    )
+
+    records = provider.filter_emails([query])["reply"].records
+
+    assert [record.subject for record in records] == ["RE: Quarterly Report"]
 
 
 def test_filter_body_keeps_plain_text_body_matching():
