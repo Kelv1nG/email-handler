@@ -1,6 +1,6 @@
 """Result schemas for email queries."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -58,6 +58,19 @@ class ExtractionResult(BaseModel):
         description="Body text keyed by email key for emails matching the body filter",
     )
     error: str | None = Field(default=None, description="Error message if extraction failed")
+
+    def __repr_args__(self) -> Iterator[tuple[str, object]]:
+        """Show attachment names and sizes without displaying their raw bytes."""
+        for field_name, value in super().__repr_args__():
+            if field_name == "attachments":
+                value = {
+                    email_key: {
+                        filename: f"<{len(content)} bytes>"
+                        for filename, content in files.items()
+                    }
+                    for email_key, files in self.attachments.items()
+                }
+            yield field_name, value
 
     def save_attachments(
         self,
