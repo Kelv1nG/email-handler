@@ -4,7 +4,6 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-import re
 import tempfile
 
 import win32com.client
@@ -29,7 +28,6 @@ from email_handler.utils.dates import format_outlook_date
 # Reference: https://docs.microsoft.com/en-us/office/client-developer/outlook/pia/
 OL_MAIL_CLASS = 43  # olMail - represents a mail message item
 OL_MSG_UNICODE = 9  # olMSGUnicode - Outlook Unicode message format
-_SUBJECT_PREFIXES = re.compile(r"^(?:(?:RE|FW):[ \t]*)+", re.IGNORECASE)
 
 
 class OutlookProvider:
@@ -84,7 +82,7 @@ class OutlookProvider:
         for folder_name, queries_in_folder in folder_groups.items():
             merged_date_from, merged_date_to = self._merge_date_ranges(queries_in_folder)
 
-            # Restrict by date in Outlook; compare normalized subjects per query below.
+            # Restrict by date in Outlook; compare full subjects per query below.
             folder_emails = self._search_folder(
                 folder_name, queries_in_folder, merged_date_from, merged_date_to
             )
@@ -388,7 +386,7 @@ class OutlookProvider:
 
         results = []
         for email in emails:
-            if keyword_filter and not self._matches_subject_keywords(
+            if keyword_filter and not self._matches_keywords(
                 email.subject, keyword_filter.keywords, keyword_filter.exact_match
             ):
                 continue
@@ -601,9 +599,7 @@ class OutlookProvider:
             subject: str = message.Subject or ""
             if not any(
                 filter_obj is None
-                or self._matches_subject_keywords(
-                    subject, filter_obj.keywords, filter_obj.exact_match
-                )
+                or self._matches_keywords(subject, filter_obj.keywords, filter_obj.exact_match)
                 for filter_obj in keyword_filters
             ):
                 continue
@@ -703,41 +699,25 @@ class OutlookProvider:
             return False
 
     def _matches_keywords(
-        self, text: str, keywords: list[str], exact_match: bool
+        self, subject: str, keywords: list[str], exact_match: bool
     ) -> bool:
-        """Check if body text matches any keyword.
+        """Check if subject matches any keyword.
 
         Args:
-            text: Email body text to check.
+            subject: Email subject to check.
             keywords: Keywords to search for.
-            exact_match: If True, match full text; if False, substring match.
+            exact_match: If True, match full subject; if False, substring match.
 
         Returns:
-            True if text matches any keyword, False otherwise.
+            True if subject matches any keyword, False otherwise.
         """
         for kw in keywords:
             if exact_match:
-                if kw == text:
+                if kw == subject:
                     return True
             else:
-                if kw.lower() in text.lower():
+                if kw.lower() in subject.lower():
                     return True
-        return False
-
-    def _matches_subject_keywords(
-        self, subject: str, keywords: list[str], exact_match: bool
-    ) -> bool:
-        """Match the base subject, ignoring leading reply/forward prefixes."""
-        normalized_subject = _SUBJECT_PREFIXES.sub("", subject).casefold()
-        for keyword in keywords:
-            normalized_keyword = _SUBJECT_PREFIXES.sub("", keyword)
-            # Keep a prefix-only keyword literal for substring searches.
-            normalized_keyword = (normalized_keyword or keyword).casefold()
-            if exact_match:
-                if normalized_keyword == normalized_subject:
-                    return True
-            elif normalized_keyword in normalized_subject:
-                return True
         return False
 
     def _extract_attachments(self, message: Any) -> list[str]:

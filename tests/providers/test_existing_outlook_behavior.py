@@ -44,7 +44,7 @@ def test_filter_emails_keeps_existing_subject_filtering(monkeypatch):
     assert provider.filter_emails([query])["reports"].records == [quarterly]
 
 
-def test_exact_subject_ignores_reply_and_forward_prefixes(monkeypatch):
+def test_exact_subject_distinguishes_reply_and_forward_prefixes(monkeypatch):
     class OutlookItems:
         def __init__(self, messages):
             self.messages = messages
@@ -84,18 +84,13 @@ def test_exact_subject_ignores_reply_and_forward_prefixes(monkeypatch):
         ]
     )
     monkeypatch.setattr(provider, "_get_folder", lambda _name: SimpleNamespace(Items=items))
-    expected_subjects = [
+    for keyword in (
         "Quarterly Report",
         "RE: Quarterly Report",
         "RE:Quarterly Report",
         "FW: Quarterly Report",
         "FW: RE: Quarterly Report",
         "FW:RE: Quarterly Report",
-    ]
-    for keyword in (
-        "quarterly report",
-        "RE: Quarterly Report",
-        "FW:RE: quarterly report",
     ):
         query = SearchQuery(
             name="reply",
@@ -105,10 +100,10 @@ def test_exact_subject_ignores_reply_and_forward_prefixes(monkeypatch):
             ],
         )
         records = provider.filter_emails([query])["reply"].records
-        assert [record.subject for record in records] == expected_subjects
+        assert [record.subject for record in records] == [keyword]
 
 
-def test_substring_subject_search_ignores_only_leading_reply_prefix(monkeypatch):
+def test_substring_subject_search_can_find_reply_prefix(monkeypatch):
     provider = object.__new__(OutlookProvider)
     monkeypatch.setattr(
         provider,
@@ -129,15 +124,23 @@ def test_substring_subject_search_ignores_only_leading_reply_prefix(monkeypatch)
 
     records = provider.filter_emails([query])["reply-text"].records
 
-    assert [record.subject for record in records] == ["Topic RE: Budget"]
+    assert [record.subject for record in records] == [
+        "RE: Quarterly Report",
+        "RE:Quarterly Report",
+        "Topic RE: Budget",
+    ]
 
 
-def test_substring_subject_search_accepts_prefixed_query(monkeypatch):
+def test_substring_subject_search_keeps_query_prefix(monkeypatch):
     provider = object.__new__(OutlookProvider)
     monkeypatch.setattr(
         provider,
         "_search_folder",
-        lambda *_args: [record("Quarterly Report"), record("FW: Quarterly Report")],
+        lambda *_args: [
+            record("Quarterly Report"),
+            record("RE: Quarterly Report"),
+            record("FW: Quarterly Report"),
+        ],
     )
     query = SearchQuery(
         name="report",
@@ -149,7 +152,7 @@ def test_substring_subject_search_accepts_prefixed_query(monkeypatch):
 
     records = provider.filter_emails([query])["report"].records
 
-    assert [record.subject for record in records] == ["Quarterly Report", "FW: Quarterly Report"]
+    assert [record.subject for record in records] == ["RE: Quarterly Report"]
 
 
 def test_filter_body_keeps_plain_text_body_matching():
