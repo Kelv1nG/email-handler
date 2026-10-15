@@ -60,7 +60,8 @@ class OutlookProvider:
         """Filter Outlook emails using composeable search queries.
 
         Queries targeting the same folder are batched into a single Outlook
-        search using the merged date range, then post-filtered per query.
+        search using the merged date range and, when safe, exact subjects.
+        Results are then post-filtered per query.
 
         Args:
             queries: List of SearchQuery objects with composeable filters.
@@ -84,7 +85,7 @@ class OutlookProvider:
         for folder_name, queries_in_folder in folder_groups.items():
             merged_date_from, merged_date_to = self._merge_date_ranges(queries_in_folder)
 
-            # Restrict by date in Outlook; compare normalized subjects per query below.
+            # Narrow exact searches in Outlook, then verify subjects per query.
             folder_emails = self._search_folder(
                 folder_name, queries_in_folder, merged_date_from, merged_date_to
             )
@@ -565,7 +566,7 @@ class OutlookProvider:
         date_from: datetime | None,
         date_to: datetime | None,
     ) -> list[EmailRecord]:
-        """Fetch mail items from a folder, restricting dates in Outlook.
+        """Fetch mail items from a folder, restricting dates and exact subjects.
 
         Candidate subjects are checked before reading bodies and attachments.
 
@@ -582,12 +583,15 @@ class OutlookProvider:
         messages = folder.Items
         messages.Sort("[ReceivedTime]", True)
 
-        # Outlook's Subject restriction ignores prefixes such as RE: and FW:.
-        # Date restriction is safe; compare the full subject after fetching.
+        # Narrow by date first, then by subject when every query is exact.
         if date_from is not None or date_to is not None:
             date_restriction = self._build_date_restriction(date_from, date_to)
             print(f"Outlook restriction: {date_restriction}")
             messages = messages.Restrict(date_restriction)
+
+        subject_restriction = self._build_exact_subject_restriction(queries)
+        if subject_restriction:
+            messages = messages.Restrict(subject_restriction)
 
         keyword_filters = [
             next((f for f in query.email_filters if isinstance(f, KeywordFilter)), None)
@@ -624,6 +628,27 @@ class OutlookProvider:
             results.append(email_record)
 
         return results
+
+    def _build_exact_subject_restriction(
+        self, queries: list[SearchQuery]
+    ) -> str | None:
+        """Use Outlook subject equality on each query's base subject."""
+        subjects = set()
+        for query in queries:
+            keyword_filter = next(
+                (f for f in query.email_filters if isinstance(f, KeywordFilter)), None
+            )
+            if keyword_filter is None or not keyword_filter.exact_match:
+                return None
+            for keyword in keyword_filter.keywords:
+                base_subject = _SUBJECT_PREFIXES.sub("", keyword) or keyword
+                if not base_subject:
+                    return None
+                subjects.add(base_subject.replace('"', '""'))
+
+        if not subjects:
+            return None
+        return " OR ".join(f'[Subject] = "{subject}"' for subject in sorted(subjects))
 
     def _build_date_restriction(
         self, date_from: datetime | None, date_to: datetime | None

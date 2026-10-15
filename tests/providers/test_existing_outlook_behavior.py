@@ -53,7 +53,7 @@ def test_exact_subject_ignores_reply_and_forward_prefixes(monkeypatch):
             pass
 
         def Restrict(self, restriction):
-            assert "[Subject]" not in restriction
+            assert restriction.casefold() == '[subject] = "quarterly report"'
             return self.messages
 
         def __iter__(self):
@@ -106,6 +106,142 @@ def test_exact_subject_ignores_reply_and_forward_prefixes(monkeypatch):
         )
         records = provider.filter_emails([query])["reply"].records
         assert [record.subject for record in records] == expected_subjects
+
+
+def test_exact_subject_uses_outlook_equality_before_reading_messages(monkeypatch):
+    restrictions = []
+    iterated_subjects = []
+
+    class OutlookItems:
+        def __init__(self, messages):
+            self.messages = messages
+
+        def Sort(self, *_args):
+            pass
+
+        def Restrict(self, restriction):
+            restrictions.append(restriction)
+            assert restriction == '[Subject] = "Quarterly Report"'
+            return OutlookItems(
+                [
+                    message
+                    for message in self.messages
+                    if message.Subject.removeprefix("RE: ").removeprefix("FW: ").casefold()
+                    == "quarterly report"
+                ]
+            )
+
+        def __iter__(self):
+            for message in self.messages:
+                iterated_subjects.append(message.Subject)
+                yield message
+
+    def message(subject):
+        return SimpleNamespace(
+            Class=43,
+            Subject=subject,
+            SenderName="Sender",
+            SenderEmailAddress="sender@example.com",
+            ReceivedTime=datetime(2026, 9, 23, 10, 0),
+            Body="",
+            Attachments=SimpleNamespace(Count=0),
+        )
+
+    provider = object.__new__(OutlookProvider)
+    provider._message_cache = {}
+    items = OutlookItems(
+        [
+            message("Team Lunch"),
+            message("Quarterly Report"),
+            message("RE: Quarterly Report"),
+            message("FW: Quarterly Report"),
+            message("Quarterly Report draft"),
+        ]
+    )
+    monkeypatch.setattr(provider, "_get_folder", lambda _name: SimpleNamespace(Items=items))
+    query = SearchQuery(
+        name="reports",
+        email_filters=[
+            FolderFilter(folder_name="Inbox"),
+            KeywordFilter(keywords=["RE: Quarterly Report"], exact_match=True),
+        ],
+    )
+
+    records = provider.filter_emails([query])["reports"].records
+
+    assert restrictions
+    assert "Team Lunch" not in iterated_subjects
+    assert [record.subject for record in records] == [
+        "Quarterly Report",
+        "RE: Quarterly Report",
+        "FW: Quarterly Report",
+    ]
+
+
+def test_exact_subject_restriction_escapes_quotes():
+    provider = object.__new__(OutlookProvider)
+    query = SearchQuery(
+        name="quoted",
+        email_filters=[
+            FolderFilter(folder_name="Inbox"),
+            KeywordFilter(
+                keywords=['RE: The "Right" Stuff', "Can't Stop"],
+                exact_match=True,
+            ),
+        ],
+    )
+
+    assert provider._build_exact_subject_restriction([query]) == (
+        '[Subject] = "Can\'t Stop" OR '
+        '[Subject] = "The ""Right"" Stuff"'
+    )
+
+
+def test_partial_query_in_same_folder_keeps_other_subjects(monkeypatch):
+    class OutlookItems:
+        def Sort(self, *_args):
+            pass
+
+        def __iter__(self):
+            return iter(
+                [
+                    SimpleNamespace(
+                        Class=43,
+                        Subject=subject,
+                        SenderName="Sender",
+                        SenderEmailAddress="sender@example.com",
+                        ReceivedTime=datetime(2026, 9, 23, 10, 0),
+                        Body="",
+                        Attachments=SimpleNamespace(Count=0),
+                    )
+                    for subject in ("Quarterly Report", "Team Lunch")
+                ]
+            )
+
+    provider = object.__new__(OutlookProvider)
+    provider._message_cache = {}
+    monkeypatch.setattr(
+        provider, "_get_folder", lambda _name: SimpleNamespace(Items=OutlookItems())
+    )
+    exact = SearchQuery(
+        name="exact",
+        email_filters=[
+            FolderFilter(folder_name="Inbox"),
+            KeywordFilter(keywords=["Quarterly Report"], exact_match=True),
+        ],
+    )
+    partial = SearchQuery(
+        name="partial",
+        email_filters=[
+            FolderFilter(folder_name="Inbox"),
+            KeywordFilter(keywords=["team"], exact_match=False),
+        ],
+    )
+
+    results = provider.filter_emails([exact, partial])
+
+    assert [record.subject for record in results["exact"].records] == ["Quarterly Report"]
+    assert [record.subject for record in results["partial"].records] == ["Team Lunch"]
 
 
 def test_substring_subject_search_ignores_only_leading_reply_prefix(monkeypatch):
